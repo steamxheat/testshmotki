@@ -1,0 +1,21 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: shmotki-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: shmotki
+      POSTGRES_PASSWORD: shmotki
+      POSTGRES_DB: shmotki
+    ports:
+      - "5434:5432"
+    volumes:
+      - shmotki_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U shmotki"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  shmotki_pgdata:

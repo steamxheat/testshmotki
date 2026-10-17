@@ -1,0 +1,14 @@
+node_modules/
+dist/
+build/
+.env
+.env.prod
+.env.production
+*.log
+server/uploads/*
+!server/uploads/.gitkeep
+.DS_Store
+
+# локальные артефакты сборки ТЗ (не часть приложения)
+.docx_render_*/
+build_tz_docx.py

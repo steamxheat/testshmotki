@@ -1,0 +1,332 @@
+// Шмотки — модель данных (§12 ТЗ). Все суммы — в целых копейках (§9.3).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------- enums ----------
+
+enum StoreStatus {
+  active
+  blocked
+}
+
+enum MemberRole {
+  owner
+  manager
+}
+
+enum CategoryStatus {
+  active
+  hidden
+  archived
+}
+
+enum ProductStatus {
+  draft
+  published
+  reserved
+  sold
+  archived
+}
+
+enum ProductCondition {
+  new_with_tag // новое с биркой
+  new_no_tag // новое без бирки
+  excellent // отличное
+  good // хорошее
+  has_issues // есть нюансы
+}
+
+enum OrderStatus {
+  pending // ожидает подтверждения
+  confirmed // подтверждён
+  rejected // отклонён
+  completed // завершён
+  cancelled // отменён покупателем
+  expired // бронь истекла
+}
+
+enum DeliveryMethod {
+  meetup // встреча
+  cdek // СДЭК
+  russian_post // Почта России
+  discuss // обсудить с продавцом
+}
+
+enum ReviewStatus {
+  published
+  hidden
+}
+
+enum EventType {
+  store_view
+  catalog_view
+  filter_apply
+  search_query
+  product_view
+  favorite_add
+  favorite_remove
+  buy_click
+  order_created
+  chat_open
+  order_status_change
+  review_published
+}
+
+enum ReportStatus {
+  open
+  resolved
+  dismissed
+}
+
+enum ReportTarget {
+  product
+  review
+}
+
+// ---------- models ----------
+
+model User {
+  id         String    @id @default(cuid())
+  telegramId BigInt    @unique @map("telegram_id")
+  username   String?
+  firstName  String?   @map("first_name")
+  lastName   String?   @map("last_name")
+  avatarUrl  String?   @map("avatar_url")
+  phone      String?
+  createdAt  DateTime  @default(now()) @map("created_at")
+  lastSeenAt DateTime  @default(now()) @map("last_seen_at")
+
+  memberships StoreMember[]
+  favorites   Favorite[]
+  orders      Order[]
+  reviews     Review[]
+  events      Event[]
+
+  @@map("users")
+}
+
+model Store {
+  id              String      @id @default(cuid())
+  slug            String      @unique
+  name            String
+  description     String?
+  logoUrl         String?     @map("logo_url")
+  coverUrl        String?     @map("cover_url")
+  city            String?
+  contactUsername String?     @map("contact_username")
+  status          StoreStatus @default(active)
+  // settings хранит необязательные настройки магазина (§7.6): способы получения,
+  // график ответа, правила брони, соцсети, акцентный цвет, showSold, slugChangedAt.
+  settings        Json        @default("{}")
+  createdAt       DateTime    @default(now()) @map("created_at")
+
+  members    StoreMember[]
+  categories Category[]
+  products   Product[]
+  orders     Order[]
+  reviews    Review[]
+  events     Event[]
+
+  @@map("stores")
+}
+
+model StoreMember {
+  id        String     @id @default(cuid())
+  storeId   String     @map("store_id")
+  userId    String     @map("user_id")
+  role      MemberRole @default(manager)
+  createdAt DateTime   @default(now()) @map("created_at")
+
+  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([storeId, userId])
+  @@map("store_members")
+}
+
+model Category {
+  id        String         @id @default(cuid())
+  storeId   String         @map("store_id")
+  parentId  String?        @map("parent_id")
+  name      String
+  sortOrder Int            @default(0) @map("sort_order")
+  status    CategoryStatus @default(active)
+
+  store    Store      @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  parent   Category?  @relation("CategoryTree", fields: [parentId], references: [id])
+  children Category[] @relation("CategoryTree")
+  products Product[]
+
+  @@index([storeId])
+  @@map("categories")
+}
+
+model Product {
+  id             String           @id @default(cuid())
+  storeId        String           @map("store_id")
+  categoryId     String?          @map("category_id")
+  title          String
+  description    String?
+  priceAmount    Int              @map("price_amount") // копейки
+  oldPriceAmount Int?             @map("old_price_amount")
+  brand          String?
+  size           String?
+  color          String?
+  condition      ProductCondition
+  defects        String?
+  sellerSku      String?          @map("seller_sku")
+  status         ProductStatus    @default(draft)
+  publishedAt    DateTime?        @map("published_at")
+  createdAt      DateTime         @default(now()) @map("created_at")
+  updatedAt      DateTime         @updatedAt @map("updated_at")
+
+  store    Store          @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  category Category?      @relation(fields: [categoryId], references: [id])
+  images   ProductImage[]
+  favorites Favorite[]
+  orders   Order[]
+  events   Event[]
+
+  @@index([storeId, status])
+  @@map("products")
+}
+
+model ProductImage {
+  id        String @id @default(cuid())
+  productId String @map("product_id")
+  url       String
+  sortOrder Int    @default(0) @map("sort_order")
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+  @@map("product_images")
+}
+
+model Favorite {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  productId String   @map("product_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, productId])
+  @@map("favorites")
+}
+
+model Order {
+  id                   String         @id @default(cuid())
+  publicNumber         String         @unique @map("public_number")
+  storeId              String         @map("store_id")
+  productId            String         @map("product_id")
+  buyerId              String         @map("buyer_id")
+  // снимок товара на момент заказа — не меняется при редактировании товара (§7.2)
+  productTitleSnapshot String         @map("product_title_snapshot")
+  priceAmountSnapshot  Int            @map("price_amount_snapshot")
+  buyerName            String         @map("buyer_name")
+  buyerUsername        String?        @map("buyer_username")
+  buyerPhone           String?        @map("buyer_phone")
+  city                 String?
+  deliveryMethod       DeliveryMethod @map("delivery_method")
+  comment              String?
+  status               OrderStatus    @default(pending)
+  reservedUntil        DateTime?      @map("reserved_until")
+  createdAt            DateTime       @default(now()) @map("created_at")
+  updatedAt            DateTime       @updatedAt @map("updated_at")
+
+  store   Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id])
+  buyer   User  @relation(fields: [buyerId], references: [id])
+  history OrderStatusHistory[]
+  review  Review?
+
+  @@index([storeId, status])
+  @@index([buyerId])
+  @@map("orders")
+}
+
+model OrderStatusHistory {
+  id             String       @id @default(cuid())
+  orderId        String       @map("order_id")
+  oldStatus      OrderStatus? @map("old_status")
+  newStatus      OrderStatus  @map("new_status")
+  changedByUserId String?     @map("changed_by_user_id")
+  createdAt      DateTime     @default(now()) @map("created_at")
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@map("order_status_history")
+}
+
+model Review {
+  id         String       @id @default(cuid())
+  orderId    String       @unique @map("order_id")
+  storeId    String       @map("store_id")
+  authorId   String       @map("author_id")
+  rating     Int // 1..5
+  text       String?
+  photos     Json         @default("[]") // массив url (§6.9, до 3 фото)
+  sellerReply String?     @map("seller_reply")
+  status     ReviewStatus @default(published)
+  createdAt  DateTime     @default(now()) @map("created_at")
+  updatedAt  DateTime     @updatedAt @map("updated_at")
+
+  order  Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  store  Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  author User  @relation(fields: [authorId], references: [id])
+
+  @@index([storeId, status])
+  @@map("reviews")
+}
+
+model Event {
+  id        String    @id @default(cuid())
+  storeId   String?   @map("store_id")
+  userId    String?   @map("user_id")
+  productId String?   @map("product_id")
+  type      EventType
+  meta      Json      @default("{}")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  store   Store?   @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  user    User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  product Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  @@index([storeId, type, createdAt])
+  @@map("events")
+}
+
+// Жалобы на товар/отзыв для модерации суперадмином (§4.3, §7.5)
+model Report {
+  id         String       @id @default(cuid())
+  storeId    String?      @map("store_id")
+  targetType ReportTarget @map("target_type")
+  targetId   String       @map("target_id")
+  reason     String?
+  status     ReportStatus @default(open)
+  createdByUserId String? @map("created_by_user_id")
+  createdAt  DateTime     @default(now()) @map("created_at")
+
+  @@map("reports")
+}
+
+// Журнал действий суперадмина (§9.9)
+model AdminAuditLog {
+  id        String   @id @default(cuid())
+  actorTelegramId BigInt @map("actor_telegram_id")
+  action    String
+  meta      Json     @default("{}")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("admin_audit_log")
+}

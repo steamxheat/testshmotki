@@ -1,0 +1,58 @@
+# Прод-сборка: PostgreSQL + API (Node) + статика (nginx).
+# Запуск:  docker compose --env-file .env.prod -f docker-compose.prod.yml up -d --build
+# Переменные берутся из .env.prod (см. .env.prod.example).
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-shmotki}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-shmotki}
+      POSTGRES_DB: ${POSTGRES_DB:-shmotki}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-shmotki}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  server:
+    build: ./server
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      DATABASE_URL: postgresql://${POSTGRES_USER:-shmotki}:${POSTGRES_PASSWORD:-shmotki}@db:5432/${POSTGRES_DB:-shmotki}?schema=public
+      # Публичный адрес сайта (для абсолютных URL картинок). Напр. https://shop.example.com
+      PUBLIC_API_URL: ${PUBLIC_URL}
+      WEBAPP_URL: ${PUBLIC_URL}
+      WEB_ORIGIN: ${PUBLIC_URL}
+      BOT_TOKEN: ${BOT_TOKEN}
+      BOT_USERNAME: ${BOT_USERNAME}
+      BOT_POLLING: ${BOT_POLLING:-1}
+      SUPERADMIN_IDS: ${SUPERADMIN_IDS}
+      RESERVATION_HOURS: ${RESERVATION_HOURS:-24}
+      SEED_ON_START: ${SEED_ON_START:-0}
+    volumes:
+      - uploads:/app/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+
+  web:
+    build:
+      context: ./web
+      args:
+        # пусто → клиент ходит в API на том же origin через nginx-прокси
+        VITE_API_URL: ""
+    restart: unless-stopped
+    ports:
+      - "${WEB_PORT:-80}:80"
+    depends_on:
+      - server
+
+volumes:
+  pgdata:
+  uploads:
