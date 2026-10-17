@@ -1,4 +1,5 @@
 import './types.js';
+import path from 'node:path';
 import cors from 'cors';
 import express from 'express';
 import helmet from 'helmet';
@@ -54,6 +55,13 @@ app.use('/api/reviews', reviewsRouter);
 app.use('/api', miscRouter);
 app.use('/api/admin', adminRouter);
 app.use('/api/superadmin', superadminRouter);
+
+// Native production mode: one Express process serves both the API and built Mini App.
+const webDist = process.env.WEB_DIST;
+if (webDist) {
+  app.use(express.static(webDist, { index: false }));
+  app.get(/^(?!\/api(?:\/|$)).*/, (_req, res) => res.sendFile(path.join(webDist, 'index.html')));
+}
 
 app.use(errorHandler);
 
