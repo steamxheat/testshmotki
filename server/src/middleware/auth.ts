@@ -1,5 +1,5 @@
 import type { NextFunction, Request, Response } from 'express';
-import { config, isSuperadmin } from '../config.js';
+import { config } from '../config.js';
 import { prisma } from '../db.js';
 import { unauthorized } from '../lib/http.js';
 import { verifyInitData, type TelegramUser } from '../telegram/initData.js';
@@ -9,8 +9,8 @@ import { verifyInitData, type TelegramUser } from '../telegram/initData.js';
  * Клиент присылает подписанную строку в заголовке `X-Init-Data`.
  * Сервер проверяет подпись и срок; доверять данным «просто с клиента» нельзя.
  *
- * В dev-режиме (без BOT_TOKEN) допускается заголовок `X-Dev-User` с JSON
- * `{id, first_name, username}` — только для локальной отладки в браузере.
+ * Заголовок `X-Dev-User` разрешён только с явным ALLOW_DEV_AUTH=1,
+ * NODE_ENV=development и без BOT_TOKEN.
  */
 export async function authenticate(req: Request, _res: Response, next: NextFunction) {
   let tgUser: TelegramUser | null = null;
@@ -22,7 +22,7 @@ export async function authenticate(req: Request, _res: Response, next: NextFunct
     if (!verified) return next(unauthorized('Неверная или просроченная подпись Telegram'));
     tgUser = verified.user;
     startParam = verified.startParam;
-  } else if (config.isDev && req.header('x-dev-user')) {
+  } else if (config.allowDevAuth && req.header('x-dev-user')) {
     // dev-пользователь приходит в base64 (значение заголовка — ISO-8859-1)
     const raw = req.header('x-dev-user') as string;
     const decoded = Buffer.from(raw, 'base64').toString('utf8');
@@ -59,11 +59,5 @@ export async function authenticate(req: Request, _res: Response, next: NextFunct
   });
 
   req.auth = { user, telegramId, username: tgUser.username, startParam };
-  req.isSuperadmin = isSuperadmin(telegramId);
-  next();
-}
-
-export function requireSuperadmin(req: Request, _res: Response, next: NextFunction) {
-  if (!req.isSuperadmin) return next(unauthorized('Только для суперадминистратора'));
   next();
 }

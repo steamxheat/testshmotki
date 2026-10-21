@@ -4,7 +4,7 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '../db.js';
 import { h, notFound } from '../lib/http.js';
 import { rublesToKopecks } from '../lib/money.js';
-import { presentProduct } from '../lib/present.js';
+import { presentProduct, presentStoreSettings } from '../lib/present.js';
 import { logEvent } from '../lib/stats.js';
 import { authenticate } from '../middleware/auth.js';
 import { resolveStore } from '../middleware/store.js';
@@ -12,9 +12,8 @@ import { searchLimiter } from '../middleware/rateLimit.js';
 
 export const catalogRouter = Router();
 
-// В каталоге показываются опубликованные и забронированные товары (§6.2:
-// у брони карточка помечается «Забронировано»). Проданные — только по прямой ссылке.
-const CATALOG_STATUSES: Prisma.ProductWhereInput['status'] = { in: ['published', 'reserved'] };
+const catalogStatuses = (showSold: boolean): Prisma.ProductWhereInput['status'] =>
+  ({ in: showSold ? ['published', 'reserved', 'sold'] : ['published', 'reserved'] });
 
 const listQuery = z.object({
   store: z.string(),
@@ -43,10 +42,11 @@ const asArray = (v?: string | string[]): string[] | undefined => {
 async function buildWhere(
   storeId: string,
   q: z.infer<typeof listQuery>,
+  showSold: boolean,
 ): Promise<Prisma.ProductWhereInput> {
   const where: Prisma.ProductWhereInput = {
     storeId,
-    status: q.availableOnly ? 'published' : CATALOG_STATUSES,
+    status: q.availableOnly ? 'published' : catalogStatuses(showSold),
   };
   const and: Prisma.ProductWhereInput[] = [];
 
@@ -78,7 +78,7 @@ async function buildWhere(
   const color = asArray(q.color);
   const condition = asArray(q.condition);
   if (brand?.length) and.push({ brand: { in: brand } });
-  if (size?.length) and.push({ size: { in: size } });
+  if (size?.length) and.push({ variants: { some: { size: { in: size } } } });
   if (color?.length) and.push({ color: { in: color } });
   if (condition?.length) and.push({ condition: { in: condition as never[] } });
 
@@ -116,7 +116,7 @@ catalogRouter.get(
   h(async (req, res) => {
     const q = listQuery.parse(req.query);
     const store = req.store!;
-    const where = await buildWhere(store.id, q);
+    const where = await buildWhere(store.id, q, presentStoreSettings(store).showSold);
 
     const [total, items] = await Promise.all([
       prisma.product.count({ where }),
@@ -162,14 +162,14 @@ catalogRouter.get(
   resolveStore(),
   h(async (req, res) => {
     const storeId = req.store!.id;
-    const base: Prisma.ProductWhereInput = { storeId, status: CATALOG_STATUSES };
+    const base: Prisma.ProductWhereInput = { storeId, status: catalogStatuses(presentStoreSettings(req.store!).showSold) };
 
-    // категории, в которых есть хотя бы один опубликованный/забронированный товар
+    // Пустые категории также доступны покупателю сразу после создания.
     const products = await prisma.product.findMany({
       where: base,
       select: {
         brand: true,
-        size: true,
+        variants: { select: { size: true } },
         color: true,
         condition: true,
         priceAmount: true,
@@ -180,13 +180,10 @@ catalogRouter.get(
     const uniq = (vals: (string | null)[]) =>
       [...new Set(vals.filter((v): v is string => !!v))].sort((a, b) => a.localeCompare(b, 'ru'));
 
-    const categoryIds = [...new Set(products.map((p) => p.categoryId).filter((v): v is string => !!v))];
-    const categories = categoryIds.length
-      ? await prisma.category.findMany({
-          where: { id: { in: categoryIds }, status: { not: 'archived' } },
-          orderBy: { sortOrder: 'asc' },
-        })
-      : [];
+    const categories = await prisma.category.findMany({
+      where: { storeId, status: 'active' },
+      orderBy: { sortOrder: 'asc' },
+    });
 
     const prices = products.map((p) => p.priceAmount);
     const hasDiscounted = products.some((p) => p.priceAmount >= 0) &&
@@ -197,7 +194,7 @@ catalogRouter.get(
       // пустые наборы клиент не показывает — «фильтр без доступных значений не показывается»
       categories: categories.map((c) => ({ id: c.id, name: c.name, parentId: c.parentId })),
       brands: uniq(products.map((p) => p.brand)),
-      sizes: uniq(products.map((p) => p.size)),
+      sizes: uniq(products.flatMap((p) => p.variants.map((v) => v.size))),
       colors: uniq(products.map((p) => p.color)),
       conditions: uniq(products.map((p) => p.condition)),
       priceMin: prices.length ? Math.min(...prices) / 100 : 0,
@@ -230,7 +227,7 @@ catalogRouter.get(
         include,
       }),
       prisma.product.findMany({
-        where: { storeId, status: CATALOG_STATUSES },
+        where: { storeId, status: catalogStatuses(presentStoreSettings(req.store!).showSold) },
         orderBy: { createdAt: 'desc' },
         take: 10,
         include,
@@ -251,20 +248,21 @@ catalogRouter.get(
 catalogRouter.get(
   '/product/:id',
   authenticate,
-  resolveStore({ optional: true }),
+  resolveStore(),
   h(async (req, res) => {
     const product = await prisma.product.findUnique({
       where: { id: req.params.id },
-      include: { images: { orderBy: { sortOrder: 'asc' } } },
+      include: { images: { orderBy: { sortOrder: 'asc' } }, variants: { orderBy: { size: 'asc' } } },
     });
     if (!product) throw notFound('Товар не найден');
+    if (product.storeId !== req.store!.id) throw notFound('Товар не найден');
 
     // покупателю доступны опубликованные, забронированные и проданные (прямая ссылка, §6.5)
     const member = await prisma.storeMember.findUnique({
       where: { storeId_userId: { storeId: product.storeId, userId: req.auth!.user.id } },
     });
     const buyerVisible = ['published', 'reserved', 'sold'].includes(product.status);
-    if (!buyerVisible && !member && !req.isSuperadmin) throw notFound('Товар недоступен');
+    if (!buyerVisible && !member) throw notFound('Товар недоступен');
 
     const fav = await prisma.favorite.findUnique({
       where: { userId_productId: { userId: req.auth!.user.id, productId: product.id } },

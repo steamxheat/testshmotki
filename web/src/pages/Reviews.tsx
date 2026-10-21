@@ -1,5 +1,6 @@
-import { Empty, ErrorState, Loader, Stars, TopBar } from '../components/ui';
+import { Empty, ErrorState, Loader, RatingStars, Stars, TopBar } from '../components/ui';
 import { api } from '../lib/api';
+import { assetUrl } from '../lib/asset';
 import { useAsync } from '../lib/useAsync';
 import { dateShort } from '../lib/format';
 
@@ -8,7 +9,7 @@ export function Reviews() {
 
   return (
     <div className="page">
-      <TopBar title="Отзывы" />
+      <TopBar title="Отзывы" fallback="/" />
       {loading && <Loader />}
       {error && <ErrorState message={error} onRetry={reload} />}
       {data && (
@@ -19,7 +20,7 @@ export function Reviews() {
           </div>
 
           {data.items.length === 0 ? (
-            <Empty icon="⭐" title="Отзывов пока нет" hint="Будьте первым после покупки" />
+            <Empty icon="star" title="Отзывов пока нет" hint="Будьте первым после покупки" />
           ) : (
             <div className="list">
               {data.items.map((r) => (
@@ -30,13 +31,13 @@ export function Reviews() {
                       <div style={{ fontWeight: 600 }}>{r.authorName}</div>
                       <div className="small muted">{dateShort(r.createdAt)}</div>
                     </div>
-                    <span className="stars">{'★'.repeat(r.rating)}{'☆'.repeat(5 - r.rating)}</span>
+                    <RatingStars value={r.rating} />
                   </div>
                   {r.text && <p style={{ marginBottom: 0 }}>{r.text}</p>}
                   {r.photos.length > 0 && (
                     <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
                       {r.photos.map((url) => (
-                        <img key={url} src={url} alt="" style={{ width: 72, height: 72, objectFit: 'cover', borderRadius: 10 }} />
+                        <img key={url} src={assetUrl(url)} alt="" style={{ width: 72, height: 72, objectFit: 'cover', borderRadius: 10 }} />
                       ))}
                     </div>
                   )}

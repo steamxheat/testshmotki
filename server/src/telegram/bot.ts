@@ -3,7 +3,8 @@ import { config } from '../config.js';
 
 // Единый экземпляр бота. Если токен не задан (локальная разработка без Telegram) —
 // бот не создаётся, а уведомления становятся no-op (см. notify.ts).
-export const bot = config.botToken ? new Bot(config.botToken) : null;
+// Node's native fetch respects the VPN proxy configured for this server.
+export const bot = config.botToken ? new Bot(config.botToken, { client: { fetch: globalThis.fetch } }) : null;
 
 export function startParamFor(slug: string): string {
   return `store_${slug}`;
@@ -14,9 +15,10 @@ export function storeDeepLink(slug: string): string {
 }
 
 /** Кнопка, открывающая нужный экран Mini App (§8). */
-export function webAppButton(text: string, path: string): InlineKeyboard {
-  const url = `${config.webappUrl}${path.startsWith('/') ? path : `/${path}`}`;
-  return new InlineKeyboard().url(text, url);
+export function webAppButton(text: string, path: string, storeSlug?: string): InlineKeyboard {
+  const url = new URL(`${config.webappUrl.replace(/\/$/, '')}/${path.replace(/^\//, '')}`);
+  if (storeSlug) url.searchParams.set('store', storeSlug);
+  return new InlineKeyboard().webApp(text, url.toString());
 }
 
 export function initBot(): void {
@@ -30,15 +32,15 @@ export function initBot(): void {
     const keyboard = new InlineKeyboard();
     if (payload && payload.startsWith('store_')) {
       const slug = payload.slice('store_'.length);
-      keyboard.webApp('🛍 Открыть магазин', `${config.webappUrl}/?startapp=${payload}`);
-      await ctx.reply(`Магазин «${slug}» открывается в приложении 👇`, {
+      keyboard.webApp('Открыть магазин', `${config.webappUrl.replace(/\/$/, '')}/?startapp=${payload}`);
+      await ctx.reply(`Магазин «${slug}» открывается в приложении.`, {
         reply_markup: keyboard,
       });
       return;
     }
-    keyboard.webApp('🛍 Открыть Шмотки', config.webappUrl);
+    keyboard.webApp('Открыть магазин', config.webappUrl);
     await ctx.reply(
-      'Привет! Это Шмотки — витрины продавцов прямо в Telegram.\n' +
+      'Привет! Магазин открыт прямо в Telegram.\n' +
         'Откройте приложение кнопкой ниже.',
       { reply_markup: keyboard },
     );

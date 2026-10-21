@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { prisma } from '../db.js';
 import { h } from '../lib/http.js';
-import { presentCategory, presentStore } from '../lib/present.js';
+import { presentCategory, presentStore, presentStoreSettings } from '../lib/present.js';
 import { getStoreRating } from '../lib/stats.js';
 import { authenticate } from '../middleware/auth.js';
 import { resolveStore } from '../middleware/store.js';
@@ -20,7 +20,7 @@ storeRouter.get(
   }),
 );
 
-// GET /api/store/categories — только непустые категории актуального ассортимента (§5.3, §6.4)
+// GET /api/store/categories — все активные категории, включая пустые.
 storeRouter.get(
   '/categories',
   authenticate,
@@ -31,11 +31,10 @@ storeRouter.get(
       where: {
         storeId,
         status: 'active',
-        products: { some: { status: { in: ['published', 'reserved'] } } },
       },
       orderBy: { sortOrder: 'asc' },
       include: {
-        _count: { select: { products: { where: { status: { in: ['published', 'reserved'] } } } } },
+        _count: { select: { products: { where: { status: { in: presentStoreSettings(req.store!).showSold ? ['published', 'reserved', 'sold'] : ['published', 'reserved'] } } } } },
       },
     });
     res.json({ categories: categories.map(presentCategory) });

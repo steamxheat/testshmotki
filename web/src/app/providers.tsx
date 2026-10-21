@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { api, ApiError } from '../lib/api';
+import { assetUrl } from '../lib/asset';
 import type { Store } from '../types';
 
 interface AppState {
@@ -35,6 +36,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         if (r.store.settings.accentColor) {
           document.documentElement.style.setProperty('--accent', r.store.settings.accentColor);
         }
+        document.documentElement.style.setProperty('--store-wallpaper', r.store.settings.backgroundUrl ? `url("${assetUrl(r.store.settings.backgroundUrl)}")` : 'none');
         document.title = r.store.name;
       })
       .catch((e: ApiError) => {

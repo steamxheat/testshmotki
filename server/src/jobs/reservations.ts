@@ -1,5 +1,8 @@
 import cron from 'node-cron';
 import { prisma } from '../db.js';
+import { releaseOrderStock } from '../lib/inventory.js';
+import { refreshCdekShipment } from '../lib/shipment.js';
+import { removeUnusedUploads } from '../lib/upload.js';
 import { notifyBuyer, notifySeller } from '../telegram/notify.js';
 
 /**
@@ -10,25 +13,28 @@ import { notifyBuyer, notifySeller } from '../telegram/notify.js';
  */
 export async function expireOverdueReservations(): Promise<void> {
   const overdue = await prisma.order.findMany({
-    where: { status: 'pending', reservedUntil: { lt: new Date() } },
+    where: { status: { in: ['pending', 'confirmed'] }, paymentConfirmedAt: null, receiptSubmittedAt: null, reservedUntil: { lt: new Date() } },
     include: { buyer: true, store: { include: { members: { where: { role: 'owner' }, include: { user: true }, take: 1 } } } },
   });
 
   for (const order of overdue) {
     try {
-      await prisma.$transaction(async (tx) => {
+      const expired = await prisma.$transaction(async (tx) => {
         const upd = await tx.order.updateMany({
-          where: { id: order.id, status: 'pending' },
+          where: { id: order.id, status: order.status, paymentConfirmedAt: null, receiptSubmittedAt: null, reservedUntil: { lt: new Date() } },
           data: { status: 'expired' },
         });
-        if (upd.count === 0) return; // кто-то уже обработал
+        if (upd.count === 0) return false; // кто-то уже обработал
         await tx.orderStatusHistory.create({
-          data: { orderId: order.id, oldStatus: 'pending', newStatus: 'expired', changedByUserId: null },
+        data: { orderId: order.id, oldStatus: order.status, newStatus: 'expired', changedByUserId: null },
         });
-        await tx.product.updateMany({ where: { id: order.productId, status: 'reserved' }, data: { status: 'published' } });
+        await releaseOrderStock(tx, order.id, false);
+        return true;
       });
+      if (!expired) continue;
+      notifyBuyer.reservationExpired(order.buyer.telegramId, order.publicNumber, order.store.slug);
       const owner = order.store.members[0]?.user;
-      if (owner) notifySeller.reservationExpiringSoon(owner.telegramId, order.publicNumber);
+      if (owner) notifySeller.reservationExpired(owner.telegramId, order.publicNumber, order.store.slug);
     } catch (e) {
       console.error('[cron] expire error', (e as Error).message);
     }
@@ -44,14 +50,27 @@ export async function notifyExpiringSoon(): Promise<void> {
   const from = new Date(now + 59 * 60 * 1000);
   const to = new Date(now + 60 * 60 * 1000);
   const soon = await prisma.order.findMany({
-    where: { status: { in: ['pending', 'confirmed'] }, reservedUntil: { gt: from, lte: to } },
+    where: { status: { in: ['pending', 'confirmed'] }, paymentConfirmedAt: null, receiptSubmittedAt: null, reservedUntil: { gt: from, lte: to } },
     include: { buyer: true, store: { include: { members: { where: { role: 'owner' }, include: { user: true }, take: 1 } } } },
   });
   for (const order of soon) {
-    notifyBuyer.reservationExpiringSoon(order.buyer.telegramId, order.publicNumber);
+    notifyBuyer.reservationExpiringSoon(order.buyer.telegramId, order.publicNumber, order.store.slug);
     const owner = order.store.members[0]?.user;
-    if (owner) notifySeller.reservationExpiringSoon(owner.telegramId, order.publicNumber);
+    if (owner) notifySeller.reservationExpiringSoon(owner.telegramId, order.publicNumber, order.store.slug);
   }
+}
+
+let refreshingShipments = false;
+export async function refreshPendingShipments(): Promise<void> {
+  if (refreshingShipments) return;
+  refreshingShipments = true;
+  try {
+    const shipments = await prisma.shipment.findMany({ where: { carrier: 'cdek', state: 'submitted', externalUuid: { not: null } }, orderBy: { updatedAt: 'asc' }, take: 20, select: { id: true } });
+    for (const shipment of shipments) {
+      try { await refreshCdekShipment(shipment.id); }
+      catch (error) { console.error('[cron] CDEK status error', shipment.id, (error as Error).message); }
+    }
+  } finally { refreshingShipments = false; }
 }
 
 export function startReservationCron(): void {
@@ -60,5 +79,7 @@ export function startReservationCron(): void {
     expireOverdueReservations().catch((e) => console.error('[cron]', e));
     notifyExpiringSoon().catch((e) => console.error('[cron]', e));
   });
+  cron.schedule('*/5 * * * *', () => refreshPendingShipments().catch((e) => console.error('[cron] CDEK status', e)));
+  cron.schedule('17 3 * * *', () => removeUnusedUploads().catch((e) => console.error('[cron] upload cleanup', e)));
   console.log('[cron] планировщик брони запущен (каждую минуту)');
 }

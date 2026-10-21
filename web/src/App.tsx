@@ -11,6 +11,8 @@ import { Profile } from './pages/Profile';
 import { Reviews } from './pages/Reviews';
 import { ProductPage } from './pages/Product';
 import { Checkout } from './pages/Checkout';
+import { Cart } from './pages/Cart';
+import { BuyerChat, AdminChats, AdminChatThread } from './pages/Chat';
 
 import { AdminLayout } from './pages/admin/AdminLayout';
 import { Overview } from './pages/admin/Overview';
@@ -20,7 +22,7 @@ import { AdminOrders } from './pages/admin/Orders';
 import { AdminReviews } from './pages/admin/Reviews';
 import { AdminCategories } from './pages/admin/Categories';
 import { Settings } from './pages/admin/Settings';
-import { Superadmin } from './pages/admin/Superadmin';
+import { DeliveryGuide } from './pages/admin/DeliveryGuide';
 
 function BuyerLayout() {
   return (
@@ -38,7 +40,7 @@ export function App() {
   if (blocked)
     return (
       <div className="app">
-        <Empty icon="🔒" title="Магазин недоступен" hint="Продавец временно закрыл витрину. Загляните позже." />
+        <Empty icon="lock" title="Магазин недоступен" hint="Продавец временно закрыл витрину. Загляните позже." />
       </div>
     );
   if (error && !store)
@@ -56,12 +58,15 @@ export function App() {
           <Route path="/catalog" element={<Catalog />} />
           <Route path="/favorites" element={<Favorites />} />
           <Route path="/orders" element={<Orders />} />
+          <Route path="/cart" element={<Cart />} />
           <Route path="/profile" element={<Profile />} />
           <Route path="/reviews" element={<Reviews />} />
+          <Route path="/chat" element={<BuyerChat />} />
         </Route>
 
         <Route path="/product/:id" element={<ProductPage />} />
         <Route path="/checkout/:productId" element={<Checkout />} />
+        <Route path="/checkout" element={<Checkout />} />
 
         <Route path="/admin" element={<AdminLayout />}>
           <Route index element={<Overview />} />
@@ -69,14 +74,15 @@ export function App() {
           <Route path="products/new" element={<ProductEditor />} />
           <Route path="products/:id" element={<ProductEditor />} />
           <Route path="orders" element={<AdminOrders />} />
+          <Route path="chats" element={<AdminChats />} />
+          <Route path="chats/:buyerId" element={<AdminChatThread />} />
           <Route path="reviews" element={<AdminReviews />} />
           <Route path="categories" element={<AdminCategories />} />
           <Route path="settings" element={<Settings />} />
+          <Route path="settings/delivery/:method" element={<DeliveryGuide />} />
         </Route>
 
-        <Route path="/super" element={<Superadmin />} />
-
-        <Route path="*" element={<Empty icon="🧭" title="Страница не найдена" />} />
+        <Route path="*" element={<Empty icon="compass" title="Страница не найдена" />} />
       </Routes>
     </div>
   );

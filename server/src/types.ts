@@ -13,7 +13,6 @@ declare global {
     interface Request {
       auth?: AuthContext;
       store?: Store;
-      isSuperadmin?: boolean;
     }
   }
 }

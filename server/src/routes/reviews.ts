@@ -33,17 +33,19 @@ const createSchema = z.object({
   orderId: z.string(),
   rating: z.coerce.number().int().min(1).max(5),
   text: z.string().trim().max(1000).optional(),
-  photos: z.array(z.string().url()).max(3).optional(),
+  photos: z.array(z.union([z.string().url(), z.string().regex(/^\/uploads\/[\w-]+\.(?:jpe?g|png|webp)$/)])).max(3).optional(),
 });
 
 // POST /api/reviews — отзыв по завершённому заказу, один раз (§6.9, §9.5)
 reviewsRouter.post(
   '/',
   authenticate,
+  resolveStore(),
   h(async (req, res) => {
     const data = createSchema.parse(req.body);
     const order = await prisma.order.findUnique({ where: { id: data.orderId }, include: { review: true } });
     if (!order) throw notFound('Заказ не найден');
+    if (order.storeId !== req.store!.id) throw notFound('Заказ не найден в этом магазине');
     if (order.buyerId !== req.auth!.user.id) throw forbidden('Отзыв доступен только участнику сделки');
     if (order.status !== 'completed') throw badRequest('Отзыв можно оставить только по завершённому заказу');
     if (order.review) throw conflict('Отзыв по этому заказу уже оставлен', 'already_reviewed');
@@ -68,7 +70,7 @@ reviewsRouter.post(
       include: { members: { where: { role: 'owner' }, include: { user: true }, take: 1 } },
     });
     const owner = store?.members[0]?.user;
-    if (owner) notifySeller.newReview(owner.telegramId, data.rating);
+    if (owner) notifySeller.newReview(owner.telegramId, data.rating, req.store!.slug);
 
     res.status(201).json({ review: presentReview(review) });
   }),

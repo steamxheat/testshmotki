@@ -1,9 +1,10 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import { promises as fsp } from 'node:fs';
 import path from 'node:path';
 import multer from 'multer';
 import sharp from 'sharp';
-import { config } from '../config.js';
+import { prisma } from '../db.js';
 import { badRequest } from './http.js';
 
 // Для MVP изображения хранятся на локальном диске в /uploads.
@@ -12,7 +13,7 @@ export const UPLOAD_DIR = path.resolve(process.cwd(), 'uploads');
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
 const ALLOWED = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif']);
-const MAX_BYTES = 12 * 1024 * 1024; // 12 МБ на входе (после сжатия файл станет меньше)
+const MAX_BYTES = 6 * 1024 * 1024; // максимум 60 МБ на запрос из 10 фото
 
 // Размеры на выходе (§11: изображения уменьшаются и отдаются в подходящем размере)
 const FULL_MAX = 1600; // для карточки товара/галереи
@@ -43,13 +44,13 @@ export interface ProcessedImage {
  */
 export async function processUploads(files: Express.Multer.File[]): Promise<ProcessedImage[]> {
   const out: ProcessedImage[] = [];
-  for (const file of files) {
+  const written: string[] = [];
+  try {
+   for (const file of files) {
     const id = crypto.randomUUID();
-    const base = sharp(file.buffer, { failOn: 'error' }).rotate(); // авто-ориентация по EXIF
-
     let meta;
     try {
-      meta = await base.metadata();
+      meta = await sharp(file.buffer, { failOn: 'error', limitInputPixels: 40_000_000 }).rotate().metadata();
     } catch {
       throw badRequest('Файл не является корректным изображением', 'bad_image');
     }
@@ -57,24 +58,64 @@ export async function processUploads(files: Express.Multer.File[]): Promise<Proc
 
     const fullName = `${id}.webp`;
     const thumbName = `${id}_thumb.webp`;
+    const disk = await fsp.statfs(UPLOAD_DIR);
+    if (disk.bavail * disk.bsize < 1024 ** 3 + file.size) throw badRequest('Недостаточно места для фото');
 
-    await sharp(file.buffer)
+    written.push(path.join(UPLOAD_DIR, fullName));
+    await sharp(file.buffer, { limitInputPixels: 40_000_000 })
       .rotate()
       .resize(FULL_MAX, FULL_MAX, { fit: 'inside', withoutEnlargement: true })
       .webp({ quality: 82 })
       .toFile(path.join(UPLOAD_DIR, fullName));
 
-    await sharp(file.buffer)
+    written.push(path.join(UPLOAD_DIR, thumbName));
+    await sharp(file.buffer, { limitInputPixels: 40_000_000 })
       .rotate()
       .resize(THUMB_MAX, THUMB_MAX, { fit: 'inside', withoutEnlargement: true })
       .webp({ quality: 72 })
       .toFile(path.join(UPLOAD_DIR, thumbName));
 
     out.push({ url: publicUrl(fullName), thumbUrl: publicUrl(thumbName) });
+   }
+  } catch (error) {
+    await Promise.all(written.map((filename) => fsp.unlink(filename).catch(() => undefined)));
+    throw error;
   }
   return out;
 }
 
+// Удаляем только наши UUID-файлы старше недели: открытая форма создания товара
+// или отзыва может не быть сохранена сразу после загрузки.
+export async function removeUnusedUploads(): Promise<number> {
+  const [images, stores, reviews, messages] = await Promise.all([
+    prisma.productImage.findMany({ select: { url: true } }),
+    prisma.store.findMany({ select: { logoUrl: true, coverUrl: true, settings: true } }),
+    prisma.review.findMany({ select: { photos: true } }),
+    prisma.chatMessage.findMany({ where: { mediaUrl: { not: null } }, select: { mediaUrl: true } }),
+  ]);
+  const references = new Set<string>();
+  const add = (value: unknown) => {
+    if (typeof value !== 'string') return;
+    for (const match of value.matchAll(/\/uploads\/([\w-]+\.webp)/g)) references.add(match[1]);
+  };
+  images.forEach((image) => add(image.url));
+  stores.forEach((store) => { add(store.logoUrl); add(store.coverUrl); add(JSON.stringify(store.settings)); });
+  reviews.forEach((review) => add(JSON.stringify(review.photos)));
+  messages.forEach((message) => add(message.mediaUrl));
+  let removed = 0;
+  for (const file of await fsp.readdir(UPLOAD_DIR)) {
+    const match = /^([0-9a-f]{8}-[0-9a-f-]{27,36})(?:_thumb)?\.webp$/i.exec(file);
+    if (!match || references.has(`${match[1]}.webp`) || references.has(`${match[1]}_thumb.webp`)) continue;
+    const filename = path.join(UPLOAD_DIR, file);
+    const stat = await fsp.stat(filename).catch(() => null);
+    if (stat && stat.mtimeMs < Date.now() - 7 * 864e5) {
+      await fsp.unlink(filename);
+      removed++;
+    }
+  }
+  return removed;
+}
+
 export function publicUrl(filename: string): string {
-  return `${config.publicApiUrl}/uploads/${filename}`;
+  return `/uploads/${filename}`;
 }

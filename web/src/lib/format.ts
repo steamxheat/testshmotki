@@ -12,6 +12,8 @@ export const deliveryLabel: Record<DeliveryMethod, string> = {
   meetup: 'Встреча',
   cdek: 'СДЭК',
   russian_post: 'Почта России',
+  yandex_delivery: 'Яндекс Доставка',
+  dhl: 'DHL',
   discuss: 'Обсудить с продавцом',
 };
 

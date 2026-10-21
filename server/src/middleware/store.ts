@@ -12,7 +12,7 @@ function slugFromStartParam(p?: string): string | undefined {
  *   1) query/header `store` (slug),
  *   2) start_param из initData (`store_<slug>`),
  * и кладёт его в req.store. Заблокированный магазин недоступен покупателям (§9.7),
- * но суперадмин может его открыть.
+ * Доступ к закрытой витрине проверяется отдельно от роли продавца.
  */
 export function resolveStore(opts: { optional?: boolean } = {}) {
   return async (req: Request, _res: Response, next: NextFunction) => {
@@ -29,7 +29,7 @@ export function resolveStore(opts: { optional?: boolean } = {}) {
     const store = await prisma.store.findUnique({ where: { slug } });
     if (!store) return next(notFound('Магазин не найден'));
 
-    if (store.status === 'blocked' && !req.isSuperadmin) {
+    if (store.status === 'blocked') {
       return next(forbidden('Магазин временно недоступен'));
     }
 
@@ -40,7 +40,7 @@ export function resolveStore(opts: { optional?: boolean } = {}) {
 
 /**
  * Доступ к админ-панели магазина: пользователь должен быть owner/manager
- * этого магазина (ID добавлен владельцем/суперадмином) — либо суперадмин (§7, §9.8).
+ * этого магазина (ID добавлен владельцем).
  * Магазин берётся из параметра :storeId либо из resolveStore.
  */
 export function requireStoreMember(req: Request, _res: Response, next: NextFunction) {
@@ -51,8 +51,6 @@ export function requireStoreMember(req: Request, _res: Response, next: NextFunct
     const store = req.store?.id === storeId ? req.store : await prisma.store.findUnique({ where: { id: storeId } });
     if (!store) return next(notFound('Магазин не найден'));
     req.store = store;
-
-    if (req.isSuperadmin) return next();
 
     const member = await prisma.storeMember.findUnique({
       where: { storeId_userId: { storeId, userId: req.auth!.user.id } },

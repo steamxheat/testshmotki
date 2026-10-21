@@ -16,8 +16,7 @@ interface TelegramWebApp {
   themeParams: Record<string, string>;
   ready: () => void;
   expand: () => void;
-  openTelegramLink: (url: string) => void;
-  openLink: (url: string) => void;
+  onEvent?: (event: string, callback: () => void) => void;
   HapticFeedback?: { impactOccurred: (s: string) => void; notificationOccurred: (s: string) => void };
   setHeaderColor?: (c: string) => void;
 }
@@ -52,8 +51,9 @@ export function getUser(): TgUser {
 }
 
 function parseStartParam(): string | undefined {
-  if (tg?.initDataUnsafe?.start_param) return tg.initDataUnsafe.start_param;
   const url = new URL(window.location.href);
+  if (url.searchParams.get('store')) return url.searchParams.get('store') ?? undefined;
+  if (tg?.initDataUnsafe?.start_param) return tg.initDataUnsafe.start_param;
   // Telegram прокидывает стартовый параметр как tgWebAppStartParam
   return (
     url.searchParams.get('tgWebAppStartParam') ??
@@ -64,10 +64,24 @@ function parseStartParam(): string | undefined {
 }
 
 export function getStoreSlug(): string {
+  const explicit = new URL(window.location.href).searchParams.get('store');
+  if (explicit) return explicit;
   const p = parseStartParam();
-  if (!p) return DEFAULT_STORE;
-  // startapp приходит как store_<slug> — убираем префикс
-  return p.startsWith('store_') ? p.slice('store_'.length) : p;
+  const initial = p ? (p.startsWith('store_') ? p.slice('store_'.length) : p) : DEFAULT_STORE;
+  try { return sessionStorage.getItem(`store_slug_override_${initial}`) ?? initial; }
+  catch { return initial; }
+}
+
+export function setCurrentStoreSlug(slug: string): void {
+  const url = new URL(window.location.href);
+  if (url.searchParams.has('store')) {
+    url.searchParams.set('store', slug);
+    window.history.replaceState(window.history.state, '', url);
+    return;
+  }
+  const p = parseStartParam();
+  const initial = p ? (p.startsWith('store_') ? p.slice('store_'.length) : p) : DEFAULT_STORE;
+  try { sessionStorage.setItem(`store_slug_override_${initial}`, slug); } catch { /* storage unavailable */ }
 }
 
 // Заголовки авторизации для API (§10): либо подписанный initData, либо dev-пользователь.
@@ -83,9 +97,9 @@ export function authHeaders(): Record<string, string> {
 
 // Применяем тему Telegram к CSS-переменным (§10, §15 — светлая и тёмная темы)
 export function applyTheme(): void {
-  const scheme = tg?.colorScheme ?? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+  const scheme = isTelegram ? tg!.colorScheme : (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
   document.documentElement.dataset.theme = scheme;
-  const p = tg?.themeParams ?? {};
+  const p = isTelegram ? tg!.themeParams : {};
   const root = document.documentElement.style;
   const map: Record<string, string | undefined> = {
     '--tg-bg': p.bg_color,
@@ -103,6 +117,7 @@ export function initTelegram(): void {
   if (tg) {
     tg.ready();
     tg.expand();
+    tg.onEvent?.('themeChanged', applyTheme);
   }
   applyTheme();
 }
@@ -114,11 +129,4 @@ export function haptic(type: 'light' | 'medium' | 'heavy' | 'success' | 'error' 
   } catch {
     /* no-op */
   }
-}
-
-export function openChat(username?: string | null): void {
-  if (!username) return;
-  const url = `https://t.me/${username.replace(/^@/, '')}`;
-  if (tg) tg.openTelegramLink(url);
-  else window.open(url, '_blank');
 }

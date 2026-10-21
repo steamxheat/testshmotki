@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom';
 import { useToast } from '../app/providers';
 import { ProductCard } from '../components/ProductCard';
 import { Empty, ErrorState, Loader } from '../components/ui';
-import { api } from '../lib/api';
+import { api, ApiError } from '../lib/api';
 import { useAsync } from '../lib/useAsync';
 
 export function Favorites() {
@@ -11,9 +11,11 @@ export function Favorites() {
 
   async function clear() {
     if (!confirm('Очистить избранное?')) return;
-    await api.clearFavorites();
-    toast('Избранное очищено');
-    reload();
+    try {
+      await api.clearFavorites();
+      toast('Избранное очищено');
+      reload();
+    } catch (e) { toast(e instanceof ApiError ? e.message : 'Не удалось очистить избранное'); }
   }
 
   return (
@@ -26,7 +28,7 @@ export function Favorites() {
       {loading && <Loader />}
       {error && <ErrorState message={error} onRetry={reload} />}
       {data && data.items.length === 0 && (
-        <Empty icon="🤍" title="В избранном пока пусто" hint="Добавляйте вещи сердечком — они появятся здесь" action={<Link to="/catalog" className="btn small" style={{ width: 'auto' }}>В каталог</Link>} />
+        <Empty icon="heart" title="В избранном пока пусто" hint="Добавляйте вещи сердечком — они появятся здесь" action={<Link to="/catalog" className="btn small" style={{ width: 'auto' }}>В каталог</Link>} />
       )}
       {data && data.items.length > 0 && (
         <div className="grid">

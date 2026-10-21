@@ -1,20 +1,22 @@
 import { useState } from 'react';
 import { useStore, useToast } from '../../app/providers';
-import { Empty, Loader } from '../../components/ui';
+import { Empty, ErrorState, Loader, RatingStars } from '../../components/ui';
 import { adminApi, ApiError } from '../../lib/api';
+import { assetUrl } from '../../lib/asset';
 import { useAsync } from '../../lib/useAsync';
 import { dateShort } from '../../lib/format';
 import type { Review } from '../../types';
 
 export function AdminReviews() {
   const { store } = useStore();
-  const { data, loading, reload } = useAsync(() => adminApi.reviews(store!.id), [store?.id]);
+  const { data, loading, error, reload } = useAsync(() => adminApi.reviews(store!.id), [store?.id]);
 
   return (
     <div className="page">
       <h1 style={{ marginBottom: 12 }}>Отзывы</h1>
       {loading && <Loader />}
-      {data && data.items.length === 0 && <Empty icon="⭐" title="Отзывов пока нет" />}
+      {error && <ErrorState message={error} onRetry={reload} />}
+      {data && data.items.length === 0 && <Empty icon="star" title="Отзывов пока нет" />}
       <div className="list">
         {data?.items.map((r) => <ReviewRow key={r.id} review={r} storeId={store!.id} onChange={reload} />)}
       </div>
@@ -35,34 +37,38 @@ function ReviewRow({ review, storeId, onChange }: { review: Review; storeId: str
     finally { setBusy(false); }
   }
 
-  async function report() {
-    const reason = prompt('Причина жалобы суперадмину:') ?? undefined;
-    if (reason === undefined) return;
-    await adminApi.reportReview(storeId, review.id, reason);
-    toast('Жалоба отправлена');
+  async function toggleVisibility() {
+    const status = review.status === 'published' ? 'hidden' : 'published';
+    try {
+      await adminApi.setReviewVisibility(storeId, review.id, status);
+      toast(status === 'hidden' ? 'Отзыв скрыт' : 'Отзыв опубликован');
+      onChange();
+    } catch (e) {
+      toast(e instanceof ApiError ? e.message : 'Не удалось изменить видимость');
+    }
   }
 
   return (
     <div className="card" style={{ padding: 14 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between' }}>
         <div><b>{review.authorName}</b> <span className="small muted">· заказ №{review.orderNumber}</span></div>
-        <span className="stars">{'★'.repeat(review.rating)}{'☆'.repeat(5 - review.rating)}</span>
+        <RatingStars value={review.rating} />
       </div>
       <div className="small muted">{dateShort(review.createdAt)}{review.status === 'hidden' ? ' · скрыт' : ''}</div>
       {review.text && <p>{review.text}</p>}
       {review.photos.length > 0 && (
         <div style={{ display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
           {review.photos.map((url) => (
-            <img key={url} src={url} alt="" style={{ width: 64, height: 64, objectFit: 'cover', borderRadius: 10 }} />
+            <img key={url} src={assetUrl(url)} alt="" style={{ width: 64, height: 64, objectFit: 'cover', borderRadius: 10 }} />
           ))}
         </div>
       )}
 
       {editing ? (
         <>
-          <textarea value={reply} onChange={(e) => setReply(e.target.value)} maxLength={1000} placeholder="Ответ продавца" />
+          <textarea aria-label="Ответ продавца" value={reply} onChange={(e) => setReply(e.target.value)} maxLength={1000} placeholder="Ответ продавца" />
           <div className="row" style={{ marginTop: 8 }}>
-            <button className="btn small outline" onClick={report}>Пожаловаться</button>
+            <button className="btn small outline" onClick={toggleVisibility}>{review.status === 'published' ? 'Скрыть отзыв' : 'Опубликовать'}</button>
             <button className="btn small" onClick={save} disabled={busy || !reply.trim()}>Ответить</button>
           </div>
         </>
@@ -72,7 +78,10 @@ function ReviewRow({ review, storeId, onChange }: { review: Review; storeId: str
             <div className="small muted" style={{ marginBottom: 4 }}>Ваш ответ</div>
             <div className="small">{review.sellerReply}</div>
           </div>
-          <button className="btn small outline" style={{ marginTop: 8, width: 'auto' }} onClick={() => setEditing(true)}>Изменить ответ</button>
+          <div className="row" style={{ marginTop: 8 }}>
+            <button className="btn small outline" onClick={toggleVisibility}>{review.status === 'published' ? 'Скрыть отзыв' : 'Опубликовать'}</button>
+            <button className="btn small outline" onClick={() => setEditing(true)}>Изменить ответ</button>
+          </div>
         </>
       )}
     </div>

@@ -56,6 +56,8 @@ enum DeliveryMethod {
   meetup // встреча
   cdek // СДЭК
   russian_post // Почта России
+  yandex_delivery // Яндекс Доставка
+  dhl // DHL
   discuss // обсудить с продавцом
 }
 
@@ -108,6 +110,8 @@ model User {
   orders      Order[]
   reviews     Review[]
   events      Event[]
+  chatThreads ChatThread[]
+  chatMessages ChatMessage[]
 
   @@map("users")
 }
@@ -133,6 +137,7 @@ model Store {
   orders     Order[]
   reviews    Review[]
   events     Event[]
+  chatThreads ChatThread[]
 
   @@map("stores")
 }
@@ -190,12 +195,30 @@ model Product {
   store    Store          @relation(fields: [storeId], references: [id], onDelete: Cascade)
   category Category?      @relation(fields: [categoryId], references: [id])
   images   ProductImage[]
+  variants ProductVariant[]
+  orderItems OrderItem[]
   favorites Favorite[]
   orders   Order[]
   events   Event[]
+  chatMessages ChatMessage[]
 
   @@index([storeId, status])
   @@map("products")
+}
+
+model ProductVariant {
+  id               String @id @default(cuid())
+  productId        String @map("product_id")
+  size             String
+  stockQuantity    Int    @default(1) @map("stock_quantity")
+  reservedQuantity Int    @default(0) @map("reserved_quantity")
+  soldQuantity     Int    @default(0) @map("sold_quantity")
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  orderItems OrderItem[]
+
+  @@unique([productId, size])
+  @@map("product_variants")
 }
 
 model ProductImage {
@@ -235,9 +258,21 @@ model Order {
   buyerName            String         @map("buyer_name")
   buyerUsername        String?        @map("buyer_username")
   buyerPhone           String?        @map("buyer_phone")
+  buyerEmail           String?        @map("buyer_email")
   city                 String?
+  deliveryAddress      String?        @map("delivery_address")
+  deliveryPoint        String?        @map("delivery_point")
+  deliveryPointCode    String?        @map("delivery_point_code")
+  deliveryCityCode     Int?           @map("delivery_city_code")
+  deliveryTariff       String?        @map("delivery_tariff")
+  deliveryPriceAmount  Int?           @map("delivery_price_amount")
+  deliveryLat          Float?         @map("delivery_lat")
+  deliveryLon          Float?         @map("delivery_lon")
   deliveryMethod       DeliveryMethod @map("delivery_method")
   comment              String?
+  receiptFilename      String?        @map("receipt_filename")
+  receiptSubmittedAt   DateTime?      @map("receipt_submitted_at")
+  paymentConfirmedAt   DateTime?      @map("payment_confirmed_at")
   status               OrderStatus    @default(pending)
   reservedUntil        DateTime?      @map("reserved_until")
   createdAt            DateTime       @default(now()) @map("created_at")
@@ -247,11 +282,54 @@ model Order {
   product Product @relation(fields: [productId], references: [id])
   buyer   User  @relation(fields: [buyerId], references: [id])
   history OrderStatusHistory[]
+  items   OrderItem[]
   review  Review?
+  shipment Shipment?
 
   @@index([storeId, status])
   @@index([buyerId])
   @@map("orders")
+}
+
+model Shipment {
+  id              String   @id @default(cuid())
+  orderId         String   @unique @map("order_id")
+  storeId         String   @map("store_id")
+  carrier         String
+  mode            String
+  state           String   @default("creating")
+  requestUuid     String?  @map("request_uuid")
+  externalUuid    String?  @map("external_uuid")
+  trackingNumber  String?  @map("tracking_number")
+  originPoint     String?  @map("origin_point")
+  tariffCode      Int?     @map("tariff_code")
+  tariffName      String?  @map("tariff_name")
+  priceAmount     Int?     @map("price_amount")
+  error           String?
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+  order           Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([storeId])
+  @@map("shipments")
+}
+
+model OrderItem {
+  id                  String @id @default(cuid())
+  orderId             String @map("order_id")
+  productId           String @map("product_id")
+  variantId           String @map("variant_id")
+  titleSnapshot       String @map("title_snapshot")
+  sizeSnapshot        String @map("size_snapshot")
+  priceAmountSnapshot Int    @map("price_amount_snapshot")
+  quantity            Int
+
+  order   Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product Product        @relation(fields: [productId], references: [id])
+  variant ProductVariant @relation(fields: [variantId], references: [id])
+
+  @@index([orderId])
+  @@map("order_items")
 }
 
 model OrderStatusHistory {
@@ -266,6 +344,41 @@ model OrderStatusHistory {
 
   @@index([orderId])
   @@map("order_status_history")
+}
+
+model ChatThread {
+  id        String   @id @default(cuid())
+  storeId   String   @map("store_id")
+  buyerId   String   @map("buyer_id")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  store    Store         @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  buyer    User          @relation(fields: [buyerId], references: [id], onDelete: Cascade)
+  messages ChatMessage[]
+
+  @@unique([storeId, buyerId])
+  @@index([storeId, updatedAt])
+  @@map("chat_threads")
+}
+
+model ChatMessage {
+  id        String   @id @default(cuid())
+  threadId  String   @map("thread_id")
+  senderId  String   @map("sender_id")
+  productId String?  @map("product_id")
+  text      String
+  mediaUrl  String?  @map("media_url")
+  mediaType String?  @map("media_type")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  thread  ChatThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  sender  User       @relation(fields: [senderId], references: [id])
+  product Product?   @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  @@index([threadId, createdAt])
+  @@index([mediaUrl])
+  @@map("chat_messages")
 }
 
 model Review {

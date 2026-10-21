@@ -1,17 +1,18 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { useToast } from '../app/providers';
-import { Loader } from '../components/ui';
+import { ErrorState, Loader } from '../components/ui';
+import { Icon } from '../components/Icon';
 import { api } from '../lib/api';
 import { useAsync } from '../lib/useAsync';
 import { isTelegram } from '../lib/telegram';
+import { useStore } from '../app/providers';
 
 export function Profile() {
-  const toast = useToast();
-  const { data, loading } = useAsync(() => api.profile(), []);
-  const [notif, setNotif] = useState(() => localStorage.getItem('notif') !== '0');
+  const { store } = useStore();
+  const { data, loading, error, reload } = useAsync(() => api.profile(), []);
 
-  if (loading || !data) return <div className="page"><Loader /></div>;
+  if (loading) return <div className="page"><Loader /></div>;
+  if (error || !data) return <div className="page"><ErrorState message={error ?? 'Не удалось загрузить профиль'} onRetry={reload} /></div>;
   const u = data.user;
 
   return (
@@ -27,24 +28,19 @@ export function Profile() {
         </div>
       </div>
 
-      {data.stores.length > 0 && (
-        <Link to="/admin" className="btn" style={{ marginBottom: 10 }}>🛠 Админ-панель продавца</Link>
-      )}
-      {data.isSuperadmin && (
-        <Link to="/super" className="btn secondary" style={{ marginBottom: 10 }}>⚙️ Панель суперадмина</Link>
+      {data.stores.some((s) => s.id === store?.id) && (
+        <Link to="/admin" className="btn" style={{ marginBottom: 10 }}><Icon name="settings" />Управление магазином</Link>
       )}
 
       <div className="card" style={{ padding: '4px 14px', marginTop: 4 }}>
-        <label className="kv" style={{ cursor: 'pointer' }}>
-          <span className="k">Уведомления</span>
-          <input type="checkbox" style={{ width: 'auto', minHeight: 'auto' }} checked={notif} onChange={(e) => { setNotif(e.target.checked); localStorage.setItem('notif', e.target.checked ? '1' : '0'); }} />
-        </label>
-        <div className="kv"><span className="k">Политика конфиденциальности</span><Link to="#" onClick={(e) => { e.preventDefault(); toast('Документ появится перед запуском'); }}>Открыть</Link></div>
-        <div className="kv"><span className="k">Пользовательское соглашение</span><Link to="#" onClick={(e) => { e.preventDefault(); toast('Документ появится перед запуском'); }}>Открыть</Link></div>
-        <div className="kv"><span className="k">Поддержка</span><Link to="#" onClick={(e) => { e.preventDefault(); toast('Напишите в чат магазина'); }}>Связаться</Link></div>
+        <div className="kv"><span className="k">Мои заказы</span><Link className="text-action" to="/orders">Открыть</Link></div>
+        <div className="kv"><span className="k">Уведомления</span><span className="small muted">Приходят в Telegram</span></div>
+        <div className="kv"><span className="k">Политика конфиденциальности</span>{store?.settings.privacyUrl ? <a className="text-action" href={store.settings.privacyUrl} target="_blank" rel="noopener noreferrer">Открыть</a> : <span className="small muted">Не опубликована продавцом</span>}</div>
+        <div className="kv"><span className="k">Пользовательское соглашение</span>{store?.settings.termsUrl ? <a className="text-action" href={store.settings.termsUrl} target="_blank" rel="noopener noreferrer">Открыть</a> : <span className="small muted">Не опубликовано продавцом</span>}</div>
+        <div className="kv"><span className="k">Поддержка</span><Link className="text-action" to="/chat">Связаться</Link></div>
       </div>
 
-      {!isTelegram && <DevPanel />}
+      {import.meta.env.DEV && !isTelegram && <DevPanel />}
     </div>
   );
 }
@@ -57,7 +53,7 @@ function DevPanel() {
       <div className="small muted" style={{ marginBottom: 8 }}>Dev-режим (вне Telegram)</div>
       <div className="field" style={{ marginBottom: 8 }}>
         <label>Войти как Telegram ID</label>
-        <input value={id} onChange={(e) => setId(e.target.value)} placeholder="100100100 — владелец демо-магазина" inputMode="numeric" />
+        <input value={id} onChange={(e) => setId(e.target.value)} placeholder="Ваш Telegram ID" inputMode="numeric" />
       </div>
       <div className="row">
         <button className="btn small" onClick={() => { if (id) localStorage.setItem('devTelegramId', id); else localStorage.removeItem('devTelegramId'); location.reload(); }}>Применить</button>

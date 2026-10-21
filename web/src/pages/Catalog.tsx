@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { ProductCard } from '../components/ProductCard';
+import { Icon } from '../components/Icon';
 import { Empty, ErrorState, Loader } from '../components/ui';
 import { api, ApiError } from '../lib/api';
 import { useAsync } from '../lib/useAsync';
@@ -43,22 +44,40 @@ export function Catalog() {
     const fromUrl: Partial<FilterState> = {};
     if (params.get('q')) fromUrl.q = params.get('q')!;
     if (params.get('category')) fromUrl.category = params.get('category')!;
-    if (params.get('sort')) fromUrl.sort = params.get('sort')!;
+    if (SORTS.some((s) => s.v === params.get('sort'))) fromUrl.sort = params.get('sort')!;
     if (params.get('discounted')) fromUrl.discounted = true;
     if (Object.keys(fromUrl).length) return { ...EMPTY, ...fromUrl };
     try {
       const saved = sessionStorage.getItem(STORAGE_KEY());
-      if (saved) return { ...EMPTY, ...JSON.parse(saved) };
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed && typeof parsed === 'object') return {
+          ...EMPTY, ...parsed,
+          q: typeof parsed.q === 'string' ? parsed.q : '',
+          sort: SORTS.some((s) => s.v === parsed.sort) ? parsed.sort : 'new',
+          brand: Array.isArray(parsed.brand) ? parsed.brand : [],
+          size: Array.isArray(parsed.size) ? parsed.size : [],
+          color: Array.isArray(parsed.color) ? parsed.color : [],
+          condition: Array.isArray(parsed.condition) ? parsed.condition : [],
+        };
+      }
     } catch { /* ignore */ }
     return EMPTY;
   });
   const [sheet, setSheet] = useState(false);
+  useEffect(() => {
+    if (!sheet) return;
+    const close = (e: KeyboardEvent) => { if (e.key === 'Escape') setSheet(false); };
+    window.addEventListener('keydown', close);
+    return () => window.removeEventListener('keydown', close);
+  }, [sheet]);
   const [items, setItems] = useState<Product[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(false);
+  const [retryKey, setRetryKey] = useState(0);
 
   const availableFilters = useAsync(() => api.filters(), []);
 
@@ -100,6 +119,11 @@ export function Catalog() {
     let active = true;
     setLoading(true);
     setError(null);
+    if (page === 1) {
+      setItems([]);
+      setTotal(0);
+      setHasMore(false);
+    }
     api
       .catalog({ ...query, page })
       .then((r) => {
@@ -111,7 +135,7 @@ export function Catalog() {
       .catch((e) => active && setError(e instanceof ApiError ? e.message : 'Ошибка'))
       .finally(() => active && setLoading(false));
     return () => { active = false; };
-  }, [query, page]);
+  }, [query, page, retryKey]);
 
   const af = availableFilters.data;
   const activeCount =
@@ -122,16 +146,17 @@ export function Catalog() {
   return (
     <div className="page">
       <div className="searchbar">
-        <span className="ico">🔎</span>
+        <span className="ico"><Icon name="search" /></span>
         <input
+          aria-label="Поиск по названию и бренду"
           placeholder="Поиск: название, бренд…"
           value={filters.q}
           onChange={(e) => setFilters((f) => ({ ...f, q: e.target.value }))}
         />
       </div>
 
-      <div className="chips" style={{ marginBottom: 10 }}>
-        <button className="chip active" onClick={() => setSheet(true)}>⚙️ Фильтры{activeCount ? ` · ${activeCount}` : ''}</button>
+      <div className="chips wrap-chips" style={{ marginBottom: 10 }}>
+        <button className="chip active" onClick={() => setSheet(true)} disabled={!af}><Icon name="filters" size={17} />Фильтры{activeCount ? ` · ${activeCount}` : ''}</button>
         {SORTS.map((s) => (
           <button key={s.v} className={`chip ${filters.sort === s.v ? 'active' : ''}`} onClick={() => setFilters((f) => ({ ...f, sort: s.v }))}>
             {s.l}
@@ -139,12 +164,14 @@ export function Catalog() {
         ))}
       </div>
 
+      {availableFilters.error && <ErrorState message={`Не удалось загрузить фильтры: ${availableFilters.error}`} onRetry={availableFilters.reload} />}
+
       <div className="small muted" style={{ marginBottom: 10 }}>Найдено: {total}</div>
 
       {error && !items.length ? (
-        <ErrorState message={error} onRetry={() => setPage(1)} />
+        <ErrorState message={error} onRetry={() => setRetryKey((n) => n + 1)} />
       ) : items.length === 0 && !loading ? (
-        <Empty icon="🔍" title="По выбранным фильтрам ничего не найдено" hint="Попробуйте сбросить фильтры" action={<button className="btn small" onClick={() => setFilters(EMPTY)}>Сбросить</button>} />
+        <Empty icon="search" title={filters.category ? 'В этой категории пока нет товаров' : 'Ничего не найдено'} hint="Попробуйте изменить или сбросить фильтры" action={<button className="btn small" onClick={() => setFilters(EMPTY)}>Сбросить фильтры</button>} />
       ) : (
         <>
           <div className="grid">
@@ -153,6 +180,7 @@ export function Catalog() {
             ))}
           </div>
           {loading && <Loader />}
+          {error && <ErrorState message={error} onRetry={() => setRetryKey((n) => n + 1)} />}
           {hasMore && !loading && (
             <button className="btn secondary" style={{ marginTop: 16 }} onClick={() => setPage((p) => p + 1)}>
               Показать ещё
@@ -163,8 +191,8 @@ export function Catalog() {
 
       {sheet && af && (
         <div className="sheet-backdrop" onClick={() => setSheet(false)}>
-          <div className="sheet" onClick={(e) => e.stopPropagation()}>
-            <h2>Фильтры</h2>
+          <div className="sheet" role="dialog" aria-modal="true" aria-labelledby="catalog-filter-title" onClick={(e) => e.stopPropagation()}>
+            <div className="sheet-head"><h2 id="catalog-filter-title">Фильтры</h2><button className="iconbtn" aria-label="Закрыть фильтры" onClick={() => setSheet(false)} autoFocus><Icon name="close" size={20} /></button></div>
 
             {af.categories.length > 0 && (
               <FilterGroup title="Категория">
@@ -202,8 +230,8 @@ export function Catalog() {
 
             <FilterGroup title="Цена, ₽">
               <div className="row">
-                <input type="number" inputMode="numeric" placeholder={`от ${af.priceMin}`} value={filters.priceFrom ?? ''} onChange={(e) => setFilters((f) => ({ ...f, priceFrom: e.target.value ? Number(e.target.value) : undefined }))} />
-                <input type="number" inputMode="numeric" placeholder={`до ${af.priceMax}`} value={filters.priceTo ?? ''} onChange={(e) => setFilters((f) => ({ ...f, priceTo: e.target.value ? Number(e.target.value) : undefined }))} />
+                <input aria-label="Цена от" type="number" inputMode="numeric" placeholder={`от ${af.priceMin}`} value={filters.priceFrom ?? ''} onChange={(e) => setFilters((f) => ({ ...f, priceFrom: e.target.value ? Number(e.target.value) : undefined }))} />
+                <input aria-label="Цена до" type="number" inputMode="numeric" placeholder={`до ${af.priceMax}`} value={filters.priceTo ?? ''} onChange={(e) => setFilters((f) => ({ ...f, priceTo: e.target.value ? Number(e.target.value) : undefined }))} />
               </div>
             </FilterGroup>
 
@@ -218,7 +246,7 @@ export function Catalog() {
 
             <div className="row">
               <button className="btn outline" onClick={() => setFilters({ ...EMPTY, sort: filters.sort })}>Сбросить</button>
-              <button className="btn" onClick={() => setSheet(false)}>Показать {total}</button>
+              <button className="btn" onClick={() => setSheet(false)}>Показать товары</button>
             </div>
           </div>
         </div>

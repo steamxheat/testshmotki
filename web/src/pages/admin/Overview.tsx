@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import { useStore } from '../../app/providers';
-import { Loader } from '../../components/ui';
+import { ErrorState, Loader } from '../../components/ui';
+import { Icon } from '../../components/Icon';
 import { adminApi } from '../../lib/api';
 import { useAsync } from '../../lib/useAsync';
 
@@ -30,20 +31,24 @@ const eventLabels: Record<string, string> = {
 
 export function Overview() {
   const { store } = useStore();
-  const { data, loading } = useAsync(() => adminApi.overview(store!.id) as Promise<OverviewData>, [store?.id]);
+  const { data, loading, error, reload } = useAsync(() => adminApi.overview(store!.id) as Promise<OverviewData>, [store?.id]);
 
-  if (loading || !data) return <div className="page"><Loader /></div>;
+  if (loading) return <div className="page"><Loader /></div>;
+  if (error || !data) return <div className="page"><ErrorState message={error ?? 'Не удалось загрузить статистику'} onRetry={reload} /></div>;
 
   return (
     <div className="page">
-      <h1 style={{ marginBottom: 14 }}>Обзор · {store!.name}</h1>
+      <h1 className="page-title">Обзор</h1>
 
       {data.newOrders > 0 && (
-        <Link to="/admin/orders" className="card" style={{ display: 'block', padding: 14, marginBottom: 14, background: 'var(--accent)', color: '#fff' }}>
-          🔔 Новых заявок: <b>{data.newOrders}</b> — нажмите, чтобы открыть
+        <Link to="/admin/orders?status=pending" className="overview-alert">
+          <span className="overview-alert-count">{data.newOrders}</span>
+          <span className="overview-alert-copy"><strong>Новые заявки</strong><small>Ожидают вашего решения</small></span>
+          <Icon name="chevronRight" size={20} />
         </Link>
       )}
 
+      <h2 className="section-title">Показатели магазина</h2>
       <div className="statgrid">
         <Stat n={data.activeProducts} l="Активных товаров" />
         <Stat n={data.reservedProducts} l="На брони" />
@@ -61,7 +66,7 @@ export function Overview() {
         <div className="list" style={{ marginTop: 10 }}>
           {data.recentEvents.length === 0 && <div className="muted small">Пока пусто</div>}
           {data.recentEvents.map((e, i) => (
-            <div key={i} className="card" style={{ padding: 10, display: 'flex', justifyContent: 'space-between' }}>
+            <div key={i} className="event-row">
               <span className="small">{eventLabels[e.type] ?? e.type}</span>
               <span className="small muted">{new Date(e.createdAt).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
             </div>

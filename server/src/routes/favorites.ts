@@ -4,9 +4,10 @@ import { h, notFound } from '../lib/http.js';
 import { presentProduct } from '../lib/present.js';
 import { logEvent } from '../lib/stats.js';
 import { authenticate } from '../middleware/auth.js';
+import { resolveStore } from '../middleware/store.js';
 
 export const favoritesRouter = Router();
-favoritesRouter.use(authenticate);
+favoritesRouter.use(authenticate, resolveStore());
 
 // GET /api/favorites — список избранного пользователя (§6.6).
 // Проданные/снятые товары остаются в избранном с отметкой, но заказать нельзя.
@@ -14,7 +15,7 @@ favoritesRouter.get(
   '/',
   h(async (req, res) => {
     const favs = await prisma.favorite.findMany({
-      where: { userId: req.auth!.user.id },
+      where: { userId: req.auth!.user.id, product: { storeId: req.store!.id } },
       orderBy: { createdAt: 'desc' },
       include: { product: { include: { images: { orderBy: { sortOrder: 'asc' }, take: 1 } } } },
     });
@@ -30,7 +31,7 @@ favoritesRouter.get(
 favoritesRouter.post(
   '/:productId',
   h(async (req, res) => {
-    const product = await prisma.product.findUnique({ where: { id: req.params.productId } });
+    const product = await prisma.product.findFirst({ where: { id: req.params.productId, storeId: req.store!.id, status: { in: ['published', 'reserved', 'sold'] } } });
     if (!product) throw notFound('Товар не найден');
     await prisma.favorite.upsert({
       where: { userId_productId: { userId: req.auth!.user.id, productId: product.id } },
@@ -46,10 +47,12 @@ favoritesRouter.post(
 favoritesRouter.delete(
   '/:productId',
   h(async (req, res) => {
+    const product = await prisma.product.findFirst({ where: { id: req.params.productId, storeId: req.store!.id }, select: { id: true } });
+    if (!product) throw notFound('Товар не найден');
     await prisma.favorite
       .delete({ where: { userId_productId: { userId: req.auth!.user.id, productId: req.params.productId } } })
       .catch(() => undefined);
-    logEvent({ userId: req.auth!.user.id, productId: req.params.productId, type: 'favorite_remove' });
+    logEvent({ storeId: req.store!.id, userId: req.auth!.user.id, productId: req.params.productId, type: 'favorite_remove' });
     res.json({ ok: true, isFavorite: false });
   }),
 );
@@ -58,7 +61,7 @@ favoritesRouter.delete(
 favoritesRouter.delete(
   '/',
   h(async (req, res) => {
-    await prisma.favorite.deleteMany({ where: { userId: req.auth!.user.id } });
+    await prisma.favorite.deleteMany({ where: { userId: req.auth!.user.id, product: { storeId: req.store!.id } } });
     res.json({ ok: true });
   }),
 );
