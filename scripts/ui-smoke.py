@@ -14,7 +14,7 @@ store = {
     "city": "Москва", "contactUsername": "pullinup_store", "logoUrl": None, "coverUrl": None,
     "status": "active", "rating": 0, "reviewsCount": 0,
     "settings": {
-        "deliveryMethods": ["meetup", "cdek", "yandex_delivery"], "cdekMode": "automatic", "responseSchedule": "", "reservationRules": "",
+        "deliveryMethods": ["meetup", "cdek", "yandex_delivery"], "cdekMode": "automatic", "currency": "RUB", "channelUsername": "", "responseSchedule": "", "reservationRules": "",
         "socialLinks": {}, "accentColor": "#486876", "backgroundUrl": PHOTO, "showSold": True,
         "privacyUrl": "https://example.org/privacy", "termsUrl": "https://example.org/terms",
         "legalName": None, "legalInn": None, "legalAddress": None, "legalEmail": None, "legalReady": False,
@@ -26,7 +26,7 @@ product = {
     "id": "p1", "storeId": "s1", "categoryId": "c1", "title": "Stone Island Pocket Crew Sweatshirt",
     "description": "Описание", "price": 2500, "priceAmount": 250000, "oldPrice": None,
     "discountPercent": None, "brand": "Test", "size": "M", "color": "чёрный",
-    "condition": "good", "defects": None, "sellerSku": None, "status": "published",
+    "condition": "good", "defects": None, "gender": "unisex", "material": "Хлопок", "measurements": "Длина 68 см", "defectImages": [], "videoUrl": None, "sellerSku": None, "status": "published",
     "variants": [{"id": "v1", "size": "M", "stock": 3, "available": 3}, {"id": "v2", "size": "L", "stock": 1, "available": 1}],
     "isReserved": False, "isSold": False, "isAvailable": True,
     "images": [{"id": f"im{i}", "url": PHOTO, "sortOrder": i} for i in range(3)], "coverUrl": PHOTO,
@@ -52,10 +52,11 @@ chat_messages = []
 order_requests = []
 legal_notice_decision = None
 profile = {"id": "u1", "firstName": "Владелец", "lastName": "", "username": "owner", "avatarUrl": None, "phone": None, "contactName": None, "contactEmail": None, "deliveryCity": None, "deliveryAddress": None}
+subscription = {"newArrivals": False, "priceDrops": False, "categoryIds": [], "brands": [], "sizes": []}
 
 
 def route_api(route):
-    global store, legal_notice_decision, profile
+    global store, legal_notice_decision, profile, subscription
     request = route.request
     parsed = urlparse(request.url)
     path = parsed.path.removeprefix("/shmotki/api")
@@ -114,6 +115,10 @@ def route_api(route):
         result = {"review": {"id": "r1"}}
     elif path == "/reviews":
         result = {"items": [], "rating": 0, "reviewsCount": 0}
+    elif path == "/subscriptions":
+        if request.method == "PUT":
+            subscription = body
+        result = {"subscription": subscription}
     elif path == "/profile":
         if request.method == "PATCH":
             profile.update(body)
@@ -121,7 +126,7 @@ def route_api(route):
         else:
             result = {"user": profile, "ordersCount": 0, "stores": [{"id": "s1", "role": "owner"}]}
     elif path.endswith("/overview"):
-        result = {"activeProducts": 1, "reservedProducts": 0, "newOrders": 1, "completedOrders": {"d7": 0, "d30": 0}, "catalogViews": {"d7": 0, "d30": 0}, "favoriteAdds": 0, "conversion": 0, "recentEvents": []}
+        result = {"activeProducts": 1, "reservedProducts": 0, "newOrders": 1, "completedOrders": {"d7": 0, "d30": 0}, "catalogViews": {"d7": 0, "d30": 0}, "favoriteAdds": 0, "conversion": 0, "todayVisitors": 0, "todayOrders": 0, "revenue30": 0, "topProducts": [], "recentEvents": []}
     elif path.endswith("/products/p1"):
         result = {"product": product}
     elif path.endswith("/products"):
@@ -177,7 +182,10 @@ with sync_playwright() as playwright:
         page.route("**/shmotki/api/**", route_api)
         for path in ["", "catalog", "favorites", "cart", "orders", "profile", "reviews", "product/p1", "checkout/p1", "chat", "admin", "admin/products", "admin/products/new", "admin/products/p1", "admin/categories", "admin/orders", "admin/chats", "admin/reviews", "admin/settings", "admin/settings/delivery/cdek", "admin/settings/delivery/russian_post", "admin/settings/delivery/yandex_delivery"]:
             page.goto(BASE + path)
-            page.locator(".page, .admin-view").first.wait_for(timeout=5000)
+            try:
+                page.locator(".page, .admin-view").first.wait_for(timeout=5000)
+            except Exception as error:
+                raise AssertionError(f"screen failed to load: {path} at {width}px") from error
             page.locator(".loader").wait_for(state="hidden", timeout=5000)
             overflow = page.evaluate("document.documentElement.scrollWidth > window.innerWidth")
             assert not overflow, f"horizontal overflow: {path} at {width}px"
@@ -204,6 +212,8 @@ with sync_playwright() as playwright:
                 page.locator(".admin-product-card").first.wait_for()
                 page.get_by_role("checkbox", name=f"Выбрать {product['title']}").check()
                 assert page.get_by_role("button", name="Архивировать выбранные").is_visible()
+                assert page.get_by_label("Изменить цены, %").is_visible()
+                assert page.get_by_label("Изменить статус").is_visible()
                 if width == 375:
                     page.screenshot(path="/tmp/shmotki-admin-products-mobile.png", full_page=True)
             if path == "admin" and width == 375:
@@ -213,14 +223,22 @@ with sync_playwright() as playwright:
                 page.get_by_role("button", name="Изменить").click()
                 page.get_by_label("ФИО").fill("Тестовый покупатель")
                 page.get_by_label("Почта").fill("buyer@example.org")
-                page.get_by_role("button", name="Сохранить").click()
+                page.get_by_role("button", name="Сохранить", exact=True).click()
                 assert profile["contactName"] == "Тестовый покупатель"
                 assert profile["contactEmail"] == "buyer@example.org"
+                page.get_by_role("checkbox", name="Новые товары").check()
+                page.get_by_role("button", name="Test", exact=True).click()
+                page.get_by_role("button", name="Сохранить подписки").click()
+                assert subscription["newArrivals"] and subscription["brands"] == ["Test"]
             if path == "admin/products/p1":
                 page.get_by_label("Состояние").wait_for()
                 assert page.locator(".select-wrap select").evaluate_all("els => els.every(e => getComputedStyle(e).appearance === 'none')")
                 page.get_by_label("Состояние").select_option("excellent")
                 assert page.get_by_label("Состояние").input_value() == "excellent"
+                assert page.get_by_label("Для кого").is_visible()
+                assert page.get_by_label("Материал").is_visible()
+                assert page.get_by_label("Замеры").is_visible()
+                assert page.get_by_role("button", name="Добавить видео").is_visible()
                 if width == 375:
                     page.screenshot(path="/tmp/shmotki-product-editor-mobile.png", full_page=True)
                 defects = page.get_by_label("Дефекты")
@@ -344,7 +362,7 @@ with sync_playwright() as playwright:
     saved_order = deepcopy(order)
     order.update({"deliveryMethod": "cdek", "deliveryTariff": "Ручное оформление", "deliveryPrice": None, "status": "confirmed"})
     page.goto(BASE + "admin/orders")
-    page.get_by_label("Стоимость доставки, ₽").fill("450")
+    page.get_by_label("Стоимость доставки, RUB").fill("450")
     assert not page.evaluate("document.documentElement.scrollWidth > window.innerWidth"), "manual delivery controls overflow mobile"
     page.once("dialog", lambda dialog: dialog.accept())
     page.get_by_role("button", name="Сообщить покупателю").click()

@@ -5,15 +5,17 @@ import { prisma } from '../db.js';
 import { badRequest, conflict, forbidden, h, notFound } from '../lib/http.js';
 import { rublesToKopecks } from '../lib/money.js';
 import { lockProducts, releaseOrderStock, syncProductStatus } from '../lib/inventory.js';
-import { presentCategory, presentOrder, presentProduct, presentReview, presentStore } from '../lib/present.js';
+import { presentCategory, presentOrder, presentProduct, presentReview, presentStore, presentStoreSettings } from '../lib/present.js';
 import { logEvent } from '../lib/stats.js';
 import { authenticate } from '../middleware/auth.js';
 import { requireStoreMember } from '../middleware/store.js';
-import { notifyBuyer } from '../telegram/notify.js';
+import { notifyBuyer, queueProductAlert } from '../telegram/notify.js';
 import { connectionFromSettings, quoteCdek, sellerCdekRequest, verifyCdekConnection, type CdekConnection } from '../lib/cdek.js';
 import { refreshCdekShipment } from '../lib/shipment.js';
 import { encryptCarrierSecret } from '../lib/carrier-secret.js';
 import { config } from '../config.js';
+import { bot } from '../telegram/bot.js';
+import { publishProductToChannel } from '../telegram/channel.js';
 
 export const adminRouter = Router();
 
@@ -21,6 +23,7 @@ export const adminRouter = Router();
 adminRouter.use('/:storeId', authenticate, requireStoreMember);
 
 const CONDITIONS = ['new_with_tag', 'new_no_tag', 'excellent', 'good', 'has_issues'] as const;
+const imageUrl = z.union([z.string().url(), z.string().regex(/^\/uploads\/[\w-]+\.(?:jpe?g|png|webp)$/)]);
 
 // ---------------- Обзор (§7.1) ----------------
 
@@ -31,6 +34,7 @@ adminRouter.get(
     const now = Date.now();
     const d7 = new Date(now - 7 * 864e5);
     const d30 = new Date(now - 30 * 864e5);
+    const today = new Date(); today.setHours(0, 0, 0, 0);
 
     const [active, reserved, newOrders, completed7, completed30, views7, views30, favAdds, productViews, orders] =
       await Promise.all([
@@ -52,6 +56,19 @@ adminRouter.get(
       take: 15,
     });
 
+    const [sales, topProducts, todayVisitors, todayOrders] = await Promise.all([
+      prisma.$queryRaw<{ revenue: bigint }[]>(Prisma.sql`SELECT COALESCE(SUM(oi.price_amount_snapshot::bigint * oi.quantity), 0)::bigint AS revenue
+        FROM order_items oi JOIN orders o ON o.id = oi.order_id
+        WHERE o.store_id = ${storeId} AND o.status = 'completed' AND o.refund_confirmed_at IS NULL AND o.updated_at >= ${d30}`),
+      prisma.$queryRaw<{ productId: string; title: string; units: bigint; revenue: bigint }[]>(Prisma.sql`SELECT oi.product_id AS "productId", MAX(oi.title_snapshot) AS title,
+        SUM(oi.quantity)::bigint AS units, SUM(oi.price_amount_snapshot::bigint * oi.quantity)::bigint AS revenue
+        FROM order_items oi JOIN orders o ON o.id = oi.order_id
+        WHERE o.store_id = ${storeId} AND o.status = 'completed' AND o.refund_confirmed_at IS NULL AND o.updated_at >= ${d30}
+        GROUP BY oi.product_id ORDER BY revenue DESC LIMIT 5`),
+      prisma.event.groupBy({ by: ['userId'], where: { storeId, type: 'store_view', createdAt: { gte: today } } }),
+      prisma.order.count({ where: { storeId, createdAt: { gte: today } } }),
+    ]);
+
     res.json({
       activeProducts: active,
       reservedProducts: reserved,
@@ -61,6 +78,10 @@ adminRouter.get(
       favoriteAdds: favAdds,
       // конверсия из просмотра карточки в заявку (§7.1, §16)
       conversion: productViews ? Math.round((orders / productViews) * 1000) / 10 : 0,
+      todayVisitors: todayVisitors.length,
+      todayOrders,
+      revenue30: Number(sales[0]?.revenue ?? 0n) / 100,
+      topProducts: topProducts.map((row) => ({ productId: row.productId, title: row.title, units: Number(row.units), revenue: Number(row.revenue) / 100 })),
       recentEvents: recent.map((e) => ({ type: e.type, createdAt: e.createdAt, meta: e.meta })),
     });
   }),
@@ -107,8 +128,13 @@ const productSchema = z.object({
   color: z.string().trim().max(40).nullish(),
   description: z.string().trim().max(4000).nullish(),
   defects: z.string().trim().max(1000).nullish(),
+  gender: z.enum(['men', 'women', 'unisex']).nullish(),
+  material: z.string().trim().max(200).nullish(),
+  measurements: z.string().trim().max(2000).nullish(),
+  defectImages: z.array(imageUrl).max(5).default([]),
+  videoUrl: z.string().regex(/^\/uploads\/[0-9a-f-]+\.(?:mp4|webm|mov)$/).nullish(),
   sellerSku: z.string().trim().max(60).nullish(),
-  images: z.array(z.union([z.string().url(), z.string().regex(/^\/uploads\/[\w-]+\.(?:jpe?g|png|webp)$/)])).max(10).default([]),
+  images: z.array(imageUrl).max(10).default([]),
   publish: z.boolean().default(false),
 }).superRefine((d, ctx) => {
   if (d.variants && new Set(d.variants.map((v) => v.size.toLowerCase())).size !== d.variants.length) {
@@ -153,6 +179,11 @@ adminRouter.post(
         color: d.color ?? null,
         description: d.description ?? null,
         defects: d.defects ?? null,
+        gender: d.gender ?? null,
+        material: d.material ?? null,
+        measurements: d.measurements ?? null,
+        defectImages: d.defectImages,
+        videoUrl: d.videoUrl ?? null,
         sellerSku: d.sellerSku ?? null,
         status: d.publish ? 'published' : 'draft',
         publishedAt: d.publish ? new Date() : null,
@@ -160,6 +191,10 @@ adminRouter.post(
       },
       include: { images: true, variants: true },
     });
+    if (d.publish) {
+      await publishProductToChannel(product.id);
+      await queueProductAlert(product, req.store!, 'newArrivals', presentStoreSettings(req.store!).currency).catch((error) => console.error('[alerts] new arrival', error));
+    }
     res.status(201).json({ product: presentProduct(product) });
   }),
 );
@@ -216,6 +251,11 @@ adminRouter.patch(
           color: d.color ?? null,
           description: d.description ?? null,
           defects: d.defects ?? null,
+          gender: d.gender ?? null,
+          material: d.material ?? null,
+          measurements: d.measurements ?? null,
+          defectImages: d.defectImages,
+          videoUrl: d.videoUrl ?? null,
           sellerSku: d.sellerSku ?? null,
           status: d.publish && locked.status === 'draft' ? 'published' : locked.status,
           publishedAt: d.publish && !locked.publishedAt ? new Date() : locked.publishedAt,
@@ -225,6 +265,9 @@ adminRouter.patch(
       await syncProductStatus(tx, [current.id]);
       return tx.product.findUniqueOrThrow({ where: { id: current.id }, include: { images: { orderBy: { sortOrder: 'asc' } }, variants: true } });
     });
+    if (current.status !== 'published' && product.status === 'published') await publishProductToChannel(product.id);
+    if (!current.publishedAt && product.status === 'published') await queueProductAlert(product, req.store!, 'newArrivals', presentStoreSettings(req.store!).currency).catch((error) => console.error('[alerts] new arrival', error));
+    else if (current.status === 'published' && product.status === 'published' && product.priceAmount < current.priceAmount) await queueProductAlert(product, req.store!, 'priceDrops', presentStoreSettings(req.store!).currency).catch((error) => console.error('[alerts] price drop', error));
     res.json({ product: presentProduct(product) });
   }),
 );
@@ -236,7 +279,7 @@ adminRouter.post(
   h(async (req, res) => {
     const storeId = req.store!.id;
     const { status } = statusSchema.parse(req.body);
-    const updated = await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       await lockProducts(tx, [req.params.id]);
       const product = await tx.product.findFirst({ where: { id: req.params.id, storeId }, include: { images: true, variants: true } });
       if (!product) throw notFound('Товар не найден');
@@ -244,13 +287,16 @@ adminRouter.post(
       if (status === 'published' && (!product.categoryId || product.priceAmount <= 0 || !product.images.length || !product.variants.some((v) => v.stockQuantity > v.soldQuantity))) {
         throw badRequest('Для публикации заполните категорию, цену, фотографию и остаток');
       }
-      return tx.product.update({
+      const updated = await tx.product.update({
         where: { id: product.id },
         data: { status, publishedAt: status === 'published' && !product.publishedAt ? new Date() : product.publishedAt },
         include: { images: { orderBy: { sortOrder: 'asc' } }, variants: true },
       });
+      return { updated, becamePublished: status === 'published' && product.status !== 'published', firstPublished: status === 'published' && !product.publishedAt };
     });
-    res.json({ product: presentProduct(updated) });
+    if (result.becamePublished) await publishProductToChannel(result.updated.id);
+    if (result.firstPublished) await queueProductAlert(result.updated, req.store!, 'newArrivals', presentStoreSettings(req.store!).currency).catch((error) => console.error('[alerts] new arrival', error));
+    res.json({ product: presentProduct(result.updated) });
   }),
 );
 
@@ -274,6 +320,11 @@ adminRouter.post(
         color: src.color,
         condition: src.condition,
         defects: src.defects,
+        gender: src.gender,
+        material: src.material,
+        measurements: src.measurements,
+        defectImages: src.defectImages ?? [],
+        videoUrl: src.videoUrl,
         sellerSku: src.sellerSku,
         status: 'draft',
         variants: { create: src.variants.map((v) => ({ size: v.size, stockQuantity: Math.max(0, v.stockQuantity - v.reservedQuantity - v.soldQuantity) })) },
@@ -316,6 +367,64 @@ adminRouter.post(
     res.json({ archived: result.count });
   }),
 );
+
+const bulkIds = z.array(z.string()).min(1).max(100).transform((ids) => [...new Set(ids)]);
+
+adminRouter.post('/:storeId/products/bulk-price', h(async (req, res) => {
+  const { ids, percent } = z.object({ ids: bulkIds, percent: z.number().int().min(-90).max(500).refine((value) => value !== 0) }).parse(req.body);
+  const changed = await prisma.$transaction(async (tx) => {
+    await lockProducts(tx, ids);
+    const products = await tx.product.findMany({ where: { id: { in: ids }, storeId: req.store!.id }, include: { variants: true } });
+    if (products.length !== ids.length) throw notFound('Один из товаров не найден в этом магазине');
+    if (products.some((product) => product.status === 'sold' || product.status === 'archived' || product.status === 'reserved')) throw conflict('Забронированные, проданные и архивные товары не меняются массово');
+    const updated = [];
+    for (const product of products) {
+      const priceAmount = Math.round(product.priceAmount * (100 + percent) / 100);
+      if (priceAmount < 1 || priceAmount > 2_000_000_000) throw badRequest('Итоговая цена должна быть больше нуля и не превышать лимит');
+      updated.push(await tx.product.update({ where: { id: product.id }, data: {
+        priceAmount,
+        oldPriceAmount: percent < 0 ? product.priceAmount : product.oldPriceAmount && product.oldPriceAmount > priceAmount ? product.oldPriceAmount : null,
+      }, include: { variants: true } }));
+    }
+    return updated;
+  }, { timeout: 20_000 });
+  if (percent < 0) for (const product of changed.filter((item) => item.status === 'published')) {
+    await queueProductAlert(product, req.store!, 'priceDrops', presentStoreSettings(req.store!).currency).catch((error) => console.error('[alerts] price drop', error));
+  }
+  res.json({ changed: changed.length });
+}));
+
+adminRouter.post('/:storeId/products/bulk-status', h(async (req, res) => {
+  const { ids, status } = z.object({ ids: bulkIds, status: z.enum(['draft', 'published', 'archived']) }).parse(req.body);
+  const published = await prisma.$transaction(async (tx) => {
+    await lockProducts(tx, ids);
+    const products = await tx.product.findMany({ where: { id: { in: ids }, storeId: req.store!.id }, include: { variants: true, images: true } });
+    if (products.length !== ids.length) throw notFound('Один из товаров не найден в этом магазине');
+    if (products.some((product) => product.status === 'reserved' || product.status === 'sold' || product.variants.some((variant) => variant.reservedQuantity > 0))) throw conflict('Забронированные и проданные товары нельзя менять массово');
+    if (status === 'published' && products.some((product) => !product.categoryId || !product.priceAmount || !product.images.length || !product.variants.some((variant) => variant.stockQuantity > variant.soldQuantity))) throw badRequest('Для публикации каждому товару нужны категория, цена, фото и остаток');
+    const activated = products.filter((product) => status === 'published' && product.status !== 'published');
+    const newlyPublished = activated.filter((product) => !product.publishedAt).map((product) => product.id);
+    await tx.product.updateMany({ where: { id: { in: ids }, storeId: req.store!.id }, data: { status } });
+    if (newlyPublished.length) await tx.product.updateMany({ where: { id: { in: newlyPublished } }, data: { publishedAt: new Date() } });
+    return { newIds: new Set(newlyPublished), products: activated.length ? await tx.product.findMany({ where: { id: { in: activated.map((product) => product.id) } }, include: { variants: true } }) : [] };
+  }, { timeout: 20_000 });
+  for (const product of published.products) {
+    if (published.newIds.has(product.id)) await queueProductAlert(product, req.store!, 'newArrivals', presentStoreSettings(req.store!).currency).catch((error) => console.error('[alerts] new arrival', error));
+    await publishProductToChannel(product.id);
+  }
+  res.json({ changed: ids.length });
+}));
+
+adminRouter.post('/:storeId/products/:id/channel', h(async (req, res) => {
+  await requireOwner(req);
+  const product = await prisma.product.findFirst({ where: { id: req.params.id, storeId: req.store!.id } });
+  if (!product) throw notFound('Товар не найден');
+  if (product.status !== 'published') throw badRequest('В канал можно отправить только опубликованный товар');
+  await publishProductToChannel(product.id);
+  const result = await prisma.product.findUniqueOrThrow({ where: { id: product.id }, select: { channelPostAt: true, channelPostError: true, channelPostChat: true } });
+  if (result.channelPostError) throw badRequest(`Не удалось отправить в канал: ${result.channelPostError}`);
+  res.json({ channel: result });
+}));
 
 // ---------------- Категории (§7.3) ----------------
 
@@ -626,7 +735,7 @@ adminRouter.post('/:storeId/orders/:id/cdek/manual-price', h(async (req, res) =>
   if (order.status !== 'confirmed' || order.deliveryMethod !== 'cdek' || order.deliveryTariff !== 'Ручное оформление' || order.deliveryPriceAmount != null || order.paymentConfirmedAt || order.receiptSubmittedAt) throw badRequest('Стоимость можно установить один раз до оплаты ручного заказа СДЭК');
   const changed = await prisma.order.updateMany({ where: { id: order.id, status: 'confirmed', deliveryPriceAmount: null, paymentConfirmedAt: null, receiptSubmittedAt: null }, data: { deliveryPriceAmount: rublesToKopecks(price), reservedUntil: new Date(Date.now() + config.reservationHours * 3600_000) } });
   if (!changed.count) throw conflict('Стоимость уже установлена');
-  notifyBuyer.deliveryPriceSet(order.buyer.telegramId, order.publicNumber, (order.priceAmountSnapshot + rublesToKopecks(price)) / 100, req.store!.slug);
+  notifyBuyer.deliveryPriceSet(order.buyer.telegramId, order.publicNumber, (order.priceAmountSnapshot + rublesToKopecks(price)) / 100, req.store!.slug, presentStoreSettings(req.store!).currency);
   res.json({ ok: true });
 }));
 
@@ -719,6 +828,7 @@ adminRouter.get(
     res.json({
       store: presentStore(store),
       paymentDetails: (store.settings as Record<string, unknown>).paymentDetails ?? '',
+      currencyLocked: Boolean(await prisma.product.count({ where: { storeId: store.id } }) || await prisma.order.count({ where: { storeId: store.id } })),
       myRole: me?.role,
       members: members.map((m) => ({
         userId: m.userId,
@@ -755,6 +865,8 @@ const settingsSchema = z.object({
       legalAddress: z.string().trim().max(500).nullish(),
       legalEmail: z.string().trim().email().max(200).nullish(),
       paymentDetails: z.string().trim().max(1000).nullish(),
+      currency: z.enum(['RUB', 'BYN', 'USD']).optional(),
+      channelUsername: z.union([z.literal(''), z.string().regex(/^@[A-Za-z0-9_]{5,32}$/, 'Укажите @имя публичного канала')]).nullish(),
       deliveryOptions: z.array(z.object({
         id: z.string().regex(/^[\w-]{1,60}$/),
         method: z.enum(['meetup', 'cdek', 'russian_post', 'yandex_delivery', 'dhl']),
@@ -795,6 +907,10 @@ adminRouter.patch(
       ...(d.settings ?? {}),
       ...(d.slug && d.slug !== store.slug ? { slugChangedAt: new Date().toISOString() } : {}),
     };
+    const currentCurrency = presentStoreSettings(store).currency;
+    mergedSettings.currency ??= currentCurrency;
+    if (mergedSettings.currency !== currentCurrency && (await prisma.product.count({ where: { storeId: store.id } }) || await prisma.order.count({ where: { storeId: store.id } }))) throw conflict('Валюту можно сменить только до добавления первого товара');
+    if (mergedSettings.currency !== 'RUB' && mergedSettings.cdekMode === 'automatic') throw badRequest('Автоматический СДЭК считает тарифы только в рублях; выберите ручной режим');
     if (mergedSettings.cdekMode === 'automatic' && !mergedSettings.cdekConnection) throw badRequest('Для автоматического СДЭК сначала подключите кабинет');
 
     const updated = await prisma.store.update({
@@ -813,6 +929,19 @@ adminRouter.patch(
     res.json({ store: presentStore(updated) });
   }),
 );
+
+adminRouter.get('/:storeId/channel/status', h(async (req, res) => {
+  await requireOwner(req);
+  const channel = presentStoreSettings(req.store!).channelUsername;
+  if (!channel) return res.json({ ready: false, reason: 'Укажите канал в настройках' });
+  if (!bot) return res.json({ ready: false, reason: 'Telegram-бот не настроен' });
+  try {
+    const me = await bot.api.getMe();
+    const member = await bot.api.getChatMember(channel, me.id);
+    const ready = member.status === 'creator' || (member.status === 'administrator' && member.can_post_messages !== false);
+    res.json({ ready, reason: ready ? null : 'Добавьте бота администратором канала с правом публикации' });
+  } catch (error) { res.json({ ready: false, reason: (error as Error).message.slice(0, 200) }); }
+}));
 
 // Сотрудников назначает владелец магазина.
 adminRouter.post(

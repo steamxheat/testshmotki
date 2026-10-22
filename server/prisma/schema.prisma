@@ -1,4 +1,4 @@
-// Шмотки — модель данных (§12 ТЗ). Все суммы — в целых копейках (§9.3).
+// Шмотки — модель данных (§12 ТЗ). Все суммы — в сотых долях валюты магазина.
 
 generator client {
   provider = "prisma-client-js"
@@ -118,6 +118,7 @@ model User {
   chatThreads ChatThread[]
   chatMessages ChatMessage[]
   legalNotices LegalNotice[]
+  subscription ProductSubscription[]
 
   @@map("users")
 }
@@ -145,6 +146,7 @@ model Store {
   events     Event[]
   chatThreads ChatThread[]
   legalNotices LegalNotice[]
+  subscriptions ProductSubscription[]
 
   @@map("stores")
 }
@@ -201,13 +203,22 @@ model Product {
   categoryId     String?          @map("category_id")
   title          String
   description    String?
-  priceAmount    Int              @map("price_amount") // копейки
+  priceAmount    Int              @map("price_amount") // сотые доли валюты магазина
   oldPriceAmount Int?             @map("old_price_amount")
   brand          String?
   size           String?
   color          String?
   condition      ProductCondition
   defects        String?
+  gender         String?
+  material       String?
+  measurements   String?
+  defectImages   Json             @default("[]") @map("defect_images")
+  videoUrl       String?          @map("video_url")
+  channelPostId  Int?             @map("channel_post_id")
+  channelPostChat String?         @map("channel_post_chat")
+  channelPostAt  DateTime?        @map("channel_post_at")
+  channelPostError String?        @map("channel_post_error")
   sellerSku      String?          @map("seller_sku")
   status         ProductStatus    @default(draft)
   publishedAt    DateTime?        @map("published_at")
@@ -226,6 +237,26 @@ model Product {
 
   @@index([storeId, status])
   @@map("products")
+}
+
+model ProductSubscription {
+  id          String   @id @default(cuid())
+  storeId     String   @map("store_id")
+  userId      String   @map("user_id")
+  newArrivals Boolean  @default(false) @map("new_arrivals")
+  priceDrops  Boolean  @default(false) @map("price_drops")
+  categoryIds String[] @default([]) @map("category_ids")
+  brands      String[] @default([])
+  sizes       String[] @default([])
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([storeId, userId])
+  @@index([storeId, newArrivals, priceDrops])
+  @@map("product_subscriptions")
 }
 
 model ProductVariant {

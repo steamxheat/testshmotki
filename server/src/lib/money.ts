@@ -1,4 +1,4 @@
-// Все цены хранятся в целых копейках, отображаются в рублях (§9.3).
+// Цены хранятся в сотых долях выбранной для магазина валюты.
 
 export function rublesToKopecks(rub: number): number {
   return Math.round(rub * 100);

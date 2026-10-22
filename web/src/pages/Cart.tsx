@@ -7,8 +7,10 @@ import { assetUrl } from '../lib/asset';
 import { getCart, setCart, useCart } from '../lib/cart';
 import { money } from '../lib/format';
 import type { Product } from '../types';
+import { useStore } from '../app/providers';
 
 export function Cart() {
+  const { store } = useStore();
   const items = useCart();
   const [products, setProducts] = useState<Record<string, Product>>({});
   const [loading, setLoading] = useState(false);
@@ -55,7 +57,7 @@ export function Cart() {
             <div className="grow">
               <Link to={`/product/${item.productId}`} className="cart-title">{p?.title ?? 'Товар больше недоступен'}</Link>
               <div className="small muted">Размер: {v?.size ?? 'недоступен'}</div>
-              {p && <div className="price">{money(p.price * item.quantity)}</div>}
+              {p && <div className="price">{money(p.price * item.quantity, store?.settings.currency)}</div>}
               {available < item.quantity && <div className="small cart-warning">Доступно: {available}. Измените количество или удалите позицию.</div>}
               <div className="cart-controls">
                 <button type="button" aria-label={`Уменьшить количество ${p?.title ?? ''}`} onClick={() => change(item.variantId, Math.max(1, item.quantity - 1))} disabled={item.quantity <= 1}>−</button>
@@ -67,7 +69,7 @@ export function Cart() {
           </div>;
         })}
       </div>
-      <div className="cart-summary"><span>Товары</span><strong>{money(total)}</strong></div>
+      <div className="cart-summary"><span>Товары</span><strong>{money(total, store?.settings.currency)}</strong></div>
       <p className="small muted">Доставка рассчитывается отдельно. Наличие окончательно проверяется при отправке заявки.</p>
       <Link className={`btn ${valid ? '' : 'disabled-link'}`} to={valid ? '/checkout' : '/cart'} aria-disabled={!valid} onClick={(e) => { if (!valid) e.preventDefault(); }}>Оформить заявку</Link>
     </>}

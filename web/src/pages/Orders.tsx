@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { useToast } from '../app/providers';
+import { useStore, useToast } from '../app/providers';
 import { Empty, ErrorState, Loader } from '../components/ui';
 import { Icon } from '../components/Icon';
 import { api, ApiError, downloadReceipt } from '../lib/api';
@@ -10,6 +10,7 @@ import { dateShort, deliveryLabel, money, orderStatusLabel, orderStatusTone, tim
 import type { Order } from '../types';
 
 export function Orders() {
+  const { store } = useStore();
   const toast = useToast();
   const { data, loading, error, reload } = useAsync(() => api.orders(), []);
   const [review, setReview] = useState<Order | null>(null);
@@ -42,7 +43,7 @@ export function Orders() {
                 <div className="grow">
                   <div className="small muted">№{o.publicNumber} · {dateShort(o.createdAt)}</div>
                   <div style={{ fontWeight: 600 }}>{o.productTitle}</div>
-                  <div className="price">{money(o.price)}</div>
+                  <div className="price">{money(o.price, store?.settings.currency)}</div>
                   {o.items.length > 0 && <div className="order-lines small muted">{o.items.map((i) => <div key={i.variantId}>{i.title} · {i.size} · {i.quantity} шт.</div>)}</div>}
                   <div style={{ marginTop: 6 }}>
                     <span className={`status ${orderStatusTone[o.status]}`}>{orderStatusLabel[o.status]}</span>
@@ -51,10 +52,10 @@ export function Orders() {
                   <div className="small muted" style={{ marginTop: 4 }}>{deliveryLabel[o.deliveryMethod]}</div>
                   {o.deliveryPoint && <div className="small muted">{o.deliveryPoint} · {o.deliveryAddress}</div>}
                   {o.deliveryPointCode && <div className="small muted">Код ПВЗ СДЭК: {o.deliveryPointCode}</div>}
-                  {o.deliveryTariff && <div className="small muted">{o.deliveryTariff} · {o.deliveryPrice == null ? 'цена уточняется' : money(o.deliveryPrice)}{o.deliveryTariff !== 'Ручное оформление' && ' (ориентир продавца)'}</div>}
-                  {o.deliveryPrice != null && <div className="small"><b>Итого с доставкой: {money(o.price + o.deliveryPrice)}</b></div>}
+                  {o.deliveryTariff && <div className="small muted">{o.deliveryTariff} · {o.deliveryPrice == null ? 'цена уточняется' : money(o.deliveryPrice, store?.settings.currency)}{o.deliveryTariff !== 'Ручное оформление' && ' (ориентир продавца)'}</div>}
+                  {o.deliveryPrice != null && <div className="small"><b>Итого с доставкой: {money(o.price + o.deliveryPrice, store?.settings.currency)}</b></div>}
                   {(o.shipment?.mode === 'live' || o.shipment?.mode === 'manual') && o.shipment.trackingNumber && <div className="small"><b>{deliveryLabel[o.deliveryMethod]}: {o.shipment.trackingNumber}</b><div className="muted">{o.status === 'sent' ? 'Продавец подтвердил передачу отправления перевозчику.' : o.shipment.mode === 'manual' ? 'Трек-номер внесён продавцом; передача перевозчику ещё не подтверждена.' : 'Накладная создана; передача перевозчику ещё не подтверждена.'}</div></div>}
-                  {o.refundConfirmedAt && <div className="small">Продавец отметил возврат {money(o.refundAmount ?? 0)}. Если деньги не поступили, напишите ему в чате.</div>}
+                  {o.refundConfirmedAt && <div className="small">Продавец отметил возврат {money(o.refundAmount ?? 0, store?.settings.currency)}. Если деньги не поступили, напишите ему в чате.</div>}
                   {o.rejectionReason && <div className="small">Продавец не подтвердил оплату: {o.rejectionReason}. Если вы перевели деньги, напишите ему в чате.</div>}
                 </div>
               </div>

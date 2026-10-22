@@ -87,7 +87,8 @@ export async function processUploads(files: Express.Multer.File[]): Promise<Proc
 // Удаляем только наши UUID-файлы старше недели: открытая форма создания товара
 // или отзыва может не быть сохранена сразу после загрузки.
 export async function removeUnusedUploads(): Promise<number> {
-  const [images, stores, reviews, messages] = await Promise.all([
+  const [products, images, stores, reviews, messages] = await Promise.all([
+    prisma.product.findMany({ select: { defectImages: true, videoUrl: true } }),
     prisma.productImage.findMany({ select: { url: true } }),
     prisma.store.findMany({ select: { logoUrl: true, coverUrl: true, settings: true } }),
     prisma.review.findMany({ select: { photos: true } }),
@@ -96,16 +97,17 @@ export async function removeUnusedUploads(): Promise<number> {
   const references = new Set<string>();
   const add = (value: unknown) => {
     if (typeof value !== 'string') return;
-    for (const match of value.matchAll(/\/uploads\/([\w-]+\.webp)/g)) references.add(match[1]);
+    for (const match of value.matchAll(/\/uploads\/([\w-]+\.(?:webp|mp4|webm|mov))/g)) references.add(match[1]);
   };
   images.forEach((image) => add(image.url));
+  products.forEach((product) => { add(JSON.stringify(product.defectImages)); add(product.videoUrl); });
   stores.forEach((store) => { add(store.logoUrl); add(store.coverUrl); add(JSON.stringify(store.settings)); });
   reviews.forEach((review) => add(JSON.stringify(review.photos)));
   messages.forEach((message) => add(message.mediaUrl));
   let removed = 0;
   for (const file of await fsp.readdir(UPLOAD_DIR)) {
-    const match = /^([0-9a-f]{8}-[0-9a-f-]{27,36})(?:_thumb)?\.webp$/i.exec(file);
-    if (!match || references.has(`${match[1]}.webp`) || references.has(`${match[1]}_thumb.webp`)) continue;
+    const match = /^([0-9a-f]{8}-[0-9a-f-]{27,36})(?:_thumb)?\.(webp|mp4|webm|mov)$/i.exec(file);
+    if (!match || references.has(file) || references.has(`${match[1]}.webp`) || references.has(`${match[1]}_thumb.webp`)) continue;
     const filename = path.join(UPLOAD_DIR, file);
     const stat = await fsp.stat(filename).catch(() => null);
     if (stat && stat.mtimeMs < Date.now() - 7 * 864e5) {

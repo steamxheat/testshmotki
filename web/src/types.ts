@@ -2,6 +2,7 @@ export type ProductStatus = 'draft' | 'published' | 'reserved' | 'sold' | 'archi
 export type Condition = 'new_with_tag' | 'new_no_tag' | 'excellent' | 'good' | 'has_issues';
 export type OrderStatus = 'pending' | 'confirmed' | 'sent' | 'rejected' | 'completed' | 'cancelled' | 'expired';
 export type DeliveryMethod = 'meetup' | 'cdek' | 'russian_post' | 'yandex_delivery' | 'dhl' | 'discuss';
+export type Currency = 'RUB' | 'BYN' | 'USD';
 
 export interface Image {
   id: string;
@@ -25,6 +26,14 @@ export interface Product {
   color: string | null;
   condition: Condition;
   defects: string | null;
+  gender: 'men' | 'women' | 'unisex' | null;
+  material: string | null;
+  measurements: string | null;
+  defectImages: string[];
+  videoUrl: string | null;
+  channelPostAt: string | null;
+  channelPostChat: string | null;
+  channelPostError: string | null;
   sellerSku: string | null;
   status: ProductStatus;
   isReserved: boolean;
@@ -44,6 +53,8 @@ export interface StoreSettings {
   responseSchedule: string | null;
   reservationRules: string | null;
   socialLinks: Record<string, string>;
+  currency: Currency;
+  channelUsername: string | null;
   accentColor: string;
   backgroundUrl: string | null;
   privacyUrl: string | null;
@@ -178,6 +189,14 @@ export interface Profile {
   };
   ordersCount: number;
   stores: { id: string; slug: string; name: string; logoUrl: string | null; role: string }[];
+}
+
+export interface ProductSubscription {
+  newArrivals: boolean;
+  priceDrops: boolean;
+  categoryIds: string[];
+  brands: string[];
+  sizes: string[];
 }
 
 export interface ChatMessage {

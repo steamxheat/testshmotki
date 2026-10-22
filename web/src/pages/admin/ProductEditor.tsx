@@ -17,6 +17,8 @@ export function ProductEditor() {
   const toast = useToast();
   const nav = useNavigate();
   const fileRef = useRef<HTMLInputElement>(null);
+  const defectRef = useRef<HTMLInputElement>(null);
+  const videoRef = useRef<HTMLInputElement>(null);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -24,9 +26,11 @@ export function ProductEditor() {
   const [cats, setCats] = useState<Category[]>([]);
   const [form, setForm] = useState({
     title: '', categoryId: '', price: '', oldPrice: '', condition: 'good' as Condition,
-    brand: '', size: '', color: '', description: '', defects: '', sellerSku: '',
+    brand: '', size: '', color: '', description: '', defects: '', sellerSku: '', gender: '', material: '', measurements: '',
   });
   const [images, setImages] = useState<string[]>([]);
+  const [defectImages, setDefectImages] = useState<string[]>([]);
+  const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [variants, setVariants] = useState<{ size: string; stock: number }[]>([{ size: 'Единый размер', stock: 1 }]);
   const [status, setStatus] = useState<ProductStatus>('draft');
   const [uploading, setUploading] = useState(false);
@@ -44,9 +48,11 @@ export function ProductEditor() {
         const p = product.product;
         setForm({
           title: p.title, categoryId: p.categoryId ?? '', price: String(p.price), oldPrice: p.oldPrice ? String(p.oldPrice) : '',
-          condition: p.condition, brand: p.brand ?? '', size: p.size ?? '', color: p.color ?? '', description: p.description ?? '', defects: p.defects ?? '', sellerSku: p.sellerSku ?? '',
+          condition: p.condition, brand: p.brand ?? '', size: p.size ?? '', color: p.color ?? '', description: p.description ?? '', defects: p.defects ?? '', sellerSku: p.sellerSku ?? '', gender: p.gender ?? '', material: p.material ?? '', measurements: p.measurements ?? '',
         });
         setImages(p.images.map((i) => i.url));
+        setDefectImages(p.defectImages ?? []);
+        setVideoUrl(p.videoUrl);
         setVariants(p.variants.map((v) => ({ size: v.size, stock: v.stock })));
         setStatus(p.status);
       })
@@ -68,6 +74,24 @@ export function ProductEditor() {
     }
   }
 
+  async function onDefectFiles(files: FileList | null) {
+    if (!files?.length) return;
+    setUploading(true);
+    try {
+      const urls = await api.upload(files);
+      setDefectImages((prev) => [...prev, ...urls].slice(0, 5));
+    } catch (e) { toast(e instanceof ApiError ? e.message : 'Ошибка загрузки фото дефекта'); }
+    finally { setUploading(false); }
+  }
+
+  async function onVideo(file?: File) {
+    if (!file) return;
+    setUploading(true);
+    try { setVideoUrl(await api.uploadProductVideo(file)); }
+    catch (e) { toast(e instanceof ApiError ? e.message : 'Ошибка загрузки видео'); }
+    finally { setUploading(false); }
+  }
+
   function body(publish: boolean) {
     return {
       title: form.title.trim(),
@@ -81,6 +105,11 @@ export function ProductEditor() {
       color: form.color.trim() || null,
       description: form.description.trim() || null,
       defects: form.defects.trim() || null,
+      gender: form.gender || null,
+      material: form.material.trim() || null,
+      measurements: form.measurements.trim() || null,
+      defectImages,
+      videoUrl,
       sellerSku: form.sellerSku.trim() || null,
       images,
       publish,
@@ -124,7 +153,7 @@ export function ProductEditor() {
             {uploading ? '…' : <Icon name="add" size={22} />}
           </button>
         </div>
-        <input ref={fileRef} type="file" accept="image/*" multiple hidden onChange={(e) => onFiles(e.target.files)} />
+        <input ref={fileRef} type="file" accept="image/*" multiple hidden onChange={(e) => { onFiles(e.target.files); e.target.value = ''; }} />
       </div>
 
       <div className="field"><label>Название *</label><input aria-label="Название товара" value={form.title} onChange={set('title')} maxLength={120} placeholder="от 3 до 120 символов" /></div>
@@ -141,8 +170,8 @@ export function ProductEditor() {
       </div>
 
       <div className="row">
-        <div className="field"><label>Цена, ₽ *</label><input aria-label="Цена" value={form.price} onChange={set('price')} inputMode="numeric" /></div>
-        <div className="field"><label>Старая цена, ₽</label><input aria-label="Старая цена" value={form.oldPrice} onChange={set('oldPrice')} inputMode="numeric" /></div>
+        <div className="field"><label>Цена, {store?.settings.currency ?? 'RUB'} *</label><input aria-label="Цена" value={form.price} onChange={set('price')} inputMode="decimal" /></div>
+        <div className="field"><label>Старая цена, {store?.settings.currency ?? 'RUB'}</label><input aria-label="Старая цена" value={form.oldPrice} onChange={set('oldPrice')} inputMode="decimal" /></div>
       </div>
 
       <div className="field">
@@ -171,8 +200,16 @@ export function ProductEditor() {
         <div className="field"><label>Артикул</label><input aria-label="Артикул" value={form.sellerSku} onChange={set('sellerSku')} /></div>
       </div>
 
+      <div className="row">
+        <div className="field"><label htmlFor="product-gender">Для кого</label><div className="select-wrap"><select id="product-gender" value={form.gender} onChange={set('gender')}><option value="">Не указано</option><option value="men">Мужское</option><option value="women">Женское</option><option value="unisex">Унисекс</option></select><Icon name="chevronDown" size={18} /></div></div>
+        <div className="field"><label>Материал</label><input aria-label="Материал" value={form.material} onChange={set('material')} maxLength={200} placeholder="Например, 100% хлопок" /></div>
+      </div>
+      <div className="field"><label>Замеры</label><textarea aria-label="Замеры" value={form.measurements} onChange={set('measurements')} maxLength={2000} placeholder="Длина, ширина, рукав…" /></div>
+
       <div className="field"><label>Описание</label><textarea aria-label="Описание товара" value={form.description} onChange={set('description')} maxLength={4000} /></div>
       <div className="field"><label>Дефекты</label><textarea aria-label="Дефекты" value={form.defects} onChange={set('defects')} maxLength={1000} /></div>
+      <div className="field"><label>Фото дефектов (до 5)</label><div className="product-media-list">{defectImages.map((url, i) => <div key={url} className="product-media-item"><img src={assetUrl(url)} alt={`Дефект ${i + 1}`} /><button type="button" className="iconbtn remove-image" aria-label={`Удалить фото дефекта ${i + 1}`} onClick={() => setDefectImages((list) => list.filter((_, index) => index !== i))}><Icon name="close" size={18} /></button></div>)}<button type="button" className="card product-media-add" aria-label="Добавить фото дефекта" disabled={uploading || defectImages.length >= 5} onClick={() => defectRef.current?.click()}><Icon name="add" size={22} /></button></div><input ref={defectRef} type="file" accept="image/*" multiple hidden onChange={(e) => { onDefectFiles(e.target.files); e.target.value = ''; }} /></div>
+      <div className="field"><label>Видео товара (до 20 МБ)</label>{videoUrl && <video className="product-video-preview" src={assetUrl(videoUrl)} controls preload="metadata" />}{videoUrl && <button type="button" className="btn small secondary" onClick={() => setVideoUrl(null)}>Убрать видео</button>}<button type="button" className="btn small outline" disabled={uploading} onClick={() => videoRef.current?.click()}>{videoUrl ? 'Заменить видео' : 'Добавить видео'}</button><input ref={videoRef} type="file" accept="video/mp4,video/webm,video/quicktime" hidden onChange={(e) => { onVideo(e.target.files?.[0]); e.target.value = ''; }} /></div>
 
       <div className="bar">
         {(isNew || status === 'draft') && <button className="btn outline" onClick={() => save(false)} disabled={saving}>{isNew ? 'Черновик' : 'Сохранить черновик'}</button>}

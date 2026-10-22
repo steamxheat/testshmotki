@@ -1,4 +1,4 @@
-import type { Condition, DeliveryMethod, OrderStatus } from '../types';
+import type { Condition, Currency, DeliveryMethod, OrderStatus } from '../types';
 
 export const conditionLabel: Record<Condition, string> = {
   new_with_tag: 'Новое с биркой',
@@ -38,8 +38,8 @@ export const orderStatusTone: Record<OrderStatus, string> = {
   expired: 'tone-muted',
 };
 
-export function money(rub: number): string {
-  return new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 0 }).format(rub) + ' ₽';
+export function money(amount: number, currency: Currency = 'RUB'): string {
+  return new Intl.NumberFormat('ru-RU', { style: 'currency', currency, minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(amount);
 }
 
 export function dateShort(iso: string): string {

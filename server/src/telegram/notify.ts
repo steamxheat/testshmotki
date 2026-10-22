@@ -1,6 +1,7 @@
 import { bot, webAppButton } from './bot.js';
 import { config } from '../config.js';
 import { prisma } from '../db.js';
+import type { Product, ProductVariant } from '@prisma/client';
 
 /**
  * Отправка уведомления пользователю через бота (§8).
@@ -63,6 +64,43 @@ export async function deliverPendingNotifications(): Promise<void> {
   for (const item of pending) await deliverNotification(item.id);
 }
 
+export async function queueProductAlert(
+  product: Product & { variants: ProductVariant[] },
+  store: { name: string; slug: string },
+  kind: 'newArrivals' | 'priceDrops',
+  currency: 'RUB' | 'BYN' | 'USD',
+): Promise<void> {
+  let cursor: string | undefined;
+  const sizes = new Set(product.variants.map((variant) => variant.size.toLowerCase()));
+  const symbol = currency === 'USD' ? '$' : currency === 'BYN' ? 'Br' : '₽';
+  const price = `${(product.priceAmount / 100).toLocaleString('ru-RU')} ${symbol}`;
+  const body = kind === 'newArrivals'
+    ? `Новинка в магазине «${escapeHtml(store.name)}»: <b>${escapeHtml(product.title)}</b> — ${price}.`
+    : `Снижена цена в магазине «${escapeHtml(store.name)}»: <b>${escapeHtml(product.title)}</b> — теперь ${price}.`;
+  do {
+    const page = await prisma.productSubscription.findMany({
+      where: { storeId: product.storeId, [kind]: true },
+      include: { user: { select: { telegramId: true } } },
+      orderBy: { id: 'asc' }, take: 200,
+      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+    });
+    if (!page.length) break;
+    const recipients = page.filter((subscription) => {
+      if (!subscription.categoryIds.length && !subscription.brands.length && !subscription.sizes.length) return true;
+      return Boolean(
+        (product.categoryId && subscription.categoryIds.includes(product.categoryId)) ||
+        (product.brand && subscription.brands.some((brand) => brand.toLowerCase() === product.brand!.toLowerCase())) ||
+        subscription.sizes.some((size) => sizes.has(size.toLowerCase())),
+      );
+    });
+    if (recipients.length) await prisma.botNotification.createMany({ data: recipients.map((subscription) => ({
+      telegramId: subscription.user.telegramId, body, buttonText: 'Открыть товар',
+      buttonPath: `/product/${product.id}`, storeSlug: store.slug,
+    })) });
+    cursor = page.length === 200 ? page[page.length - 1].id : undefined;
+  } while (cursor);
+}
+
 // ---- покупателю (§8) ----
 
 export const notifyBuyer = {
@@ -97,8 +135,8 @@ export const notifyBuyer = {
     send(tgId, `Продавец не подтвердил получение денег по заказу <b>#${n}</b> и закрыл заявку. Причина: ${escapeHtml(reason)}. Если перевод был выполнен, напишите продавцу в чате и приложите подтверждение.`, { text: 'Открыть заказ', path: '/orders', storeSlug }),
   paymentConfirmed: (tgId: bigint, n: string, storeSlug?: string) =>
     send(tgId, `Продавец подтвердил получение оплаты по заказу <b>#${n}</b>.`, { text: 'Открыть заказ', path: '/orders', storeSlug }),
-  deliveryPriceSet: (tgId: bigint, n: string, total: number, storeSlug?: string) =>
-    send(tgId, `Продавец согласовал доставку СДЭК по заказу <b>#${n}</b>. Итого с доставкой: <b>${total.toLocaleString('ru-RU')} ₽</b>. Проверьте заказ перед переводом.`, { text: 'К заказу', path: '/orders', storeSlug }),
+  deliveryPriceSet: (tgId: bigint, n: string, total: number, storeSlug?: string, currency: 'RUB' | 'BYN' | 'USD' = 'RUB') =>
+    send(tgId, `Продавец согласовал доставку СДЭК по заказу <b>#${n}</b>. Итого с доставкой: <b>${total.toLocaleString('ru-RU')} ${currency === 'USD' ? '$' : currency === 'BYN' ? 'Br' : '₽'}</b>. Проверьте заказ перед переводом.`, { text: 'К заказу', path: '/orders', storeSlug }),
   shipmentRegistered: (tgId: bigint, n: string, tracking: string, storeSlug?: string) =>
     send(tgId, `Отправление СДЭК по заказу <b>#${n}</b> оформлено. Трек-номер: <b>${escapeHtml(tracking)}</b>.`, { text: 'Открыть заказ', path: '/orders', storeSlug }),
   shipmentRegisteredManual: (tgId: bigint, n: string, tracking: string, storeSlug?: string) =>

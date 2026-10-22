@@ -23,6 +23,9 @@ export function AdminProducts() {
   const [status, setStatus] = useState('');
   const [sort, setSort] = useState('new');
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkPercent, setBulkPercent] = useState('');
+  const [bulkStatus, setBulkStatus] = useState<'draft' | 'published' | 'archived'>('draft');
+  const [bulkBusy, setBulkBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [page, setPage] = useState(1);
@@ -62,6 +65,24 @@ export function AdminProducts() {
     } catch (e) { toast(e instanceof ApiError ? e.message : 'Не удалось архивировать товары'); }
   }
 
+  async function changePrices() {
+    const percent = Number(bulkPercent);
+    if (!selected.size || !Number.isInteger(percent) || percent === 0 || percent < -90 || percent > 500) { toast('Укажите целый процент от −90 до +500'); return; }
+    if (!confirm(`Изменить цены ${selected.size} товаров на ${percent > 0 ? '+' : ''}${percent}%? При снижении подписчики получат уведомление.`)) return;
+    setBulkBusy(true);
+    try { const result = await adminApi.bulkPrice(store!.id, [...selected], percent); toast(`Цены изменены: ${result.changed}`); setSelected(new Set()); setBulkPercent(''); reload(); }
+    catch (error) { toast(error instanceof ApiError ? error.message : 'Не удалось изменить цены'); }
+    finally { setBulkBusy(false); }
+  }
+
+  async function changeStatus() {
+    if (!selected.size || !confirm(`Перевести ${selected.size} товаров в статус «${STATUS_LABEL[bulkStatus]}»?`)) return;
+    setBulkBusy(true);
+    try { const result = await adminApi.bulkStatus(store!.id, [...selected], bulkStatus); toast(`Статус изменён: ${result.changed}`); setSelected(new Set()); reload(); }
+    catch (error) { toast(error instanceof ApiError ? error.message : 'Не удалось изменить статус'); }
+    finally { setBulkBusy(false); }
+  }
+
   return (
     <div className="page">
       <div className="topbar">
@@ -91,7 +112,9 @@ export function AdminProducts() {
       {selected.size > 0 && (
         <div className="admin-bulk-actions" style={{ marginBottom: 12 }}>
           <button className="btn small outline" onClick={() => setSelected(new Set())}>Снять ({selected.size})</button>
-          <button className="btn small danger" onClick={bulkArchive}>Архивировать выбранные</button>
+          <button className="btn small danger" disabled={bulkBusy} onClick={bulkArchive}>Архивировать выбранные</button>
+          <div className="admin-bulk-control"><label htmlFor="bulk-percent">Изменить цены, %</label><input id="bulk-percent" type="number" min="-90" max="500" step="1" value={bulkPercent} onChange={(e) => setBulkPercent(e.target.value)} placeholder="Например, −10" /><button className="btn small outline" disabled={bulkBusy} onClick={changePrices}>Применить</button></div>
+          <div className="admin-bulk-control"><label htmlFor="bulk-status">Изменить статус</label><div className="select-wrap"><select id="bulk-status" value={bulkStatus} onChange={(e) => setBulkStatus(e.target.value as typeof bulkStatus)}><option value="draft">Черновик</option><option value="published">Опубликован</option><option value="archived">Архив</option></select><Icon name="chevronDown" size={18} /></div><button className="btn small outline" disabled={bulkBusy} onClick={changeStatus}>Применить</button></div>
         </div>
       )}
 
@@ -108,8 +131,9 @@ export function AdminProducts() {
                 {p.coverUrl ? <img className="thumb" src={assetUrl(p.coverUrl)} alt="" /> : <div className="thumb" />}
                 <div className="grow">
                   <div style={{ fontWeight: 600 }}>{p.title}</div>
-                  <div className="price">{money(p.price)}</div>
+                  <div className="price">{money(p.price, store?.settings.currency)}</div>
                   <span className="tag" style={{ marginTop: 4, display: 'inline-block' }}>{STATUS_LABEL[p.status]}</span>
+                  {store?.settings.channelUsername && p.status === 'published' && <div className="small muted">{p.channelPostAt && p.channelPostChat === store.settings.channelUsername ? 'В канале' : p.channelPostError ? `Канал: ${p.channelPostError}` : 'В канал ещё не отправлен'}</div>}
                 </div>
               </div>
               <div className="admin-product-actions">
@@ -118,6 +142,7 @@ export function AdminProducts() {
                 {p.status === 'published' && <button className="chip" onClick={() => act(p, () => adminApi.setStatus(store!.id, p.id, 'draft'), 'В черновик')}>Снять</button>}
                 <button className="chip" onClick={() => act(p, () => adminApi.duplicate(store!.id, p.id), 'Дубль создан')}>Дублировать</button>
                 {p.status !== 'archived' && p.status !== 'reserved' && <button className="chip" onClick={() => act(p, () => adminApi.archive(store!.id, p.id), 'В архив')}>Архив</button>}
+                {store?.settings.channelUsername && p.status === 'published' && (!p.channelPostAt || p.channelPostChat !== store.settings.channelUsername) && <button className="chip" onClick={() => act(p, () => adminApi.publishToChannel(store!.id, p.id), 'Публикация проверена')}>В канал</button>}
               </div>
             </div>
           ))}

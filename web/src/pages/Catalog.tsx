@@ -8,6 +8,7 @@ import { useAsync } from '../lib/useAsync';
 import { conditionLabel } from '../lib/format';
 import { getStoreSlug } from '../lib/telegram';
 import type { Condition, Product } from '../types';
+import { useStore } from '../app/providers';
 
 interface FilterState {
   q: string;
@@ -30,6 +31,7 @@ const SORTS = [
   { v: 'price_asc', l: 'Дешевле' },
   { v: 'price_desc', l: 'Дороже' },
   { v: 'discount', l: 'Со скидкой' },
+  { v: 'popular', l: 'Популярные' },
 ];
 const STORAGE_KEY = () => `catalog_filters_${getStoreSlug()}`;
 
@@ -38,6 +40,7 @@ function toggle(arr: string[], v: string): string[] {
 }
 
 export function Catalog() {
+  const { store } = useStore();
   const [params] = useSearchParams();
   // фильтры сохраняются при возврате из карточки (§6.4): URL → sessionStorage → пусто
   const [filters, setFilters] = useState<FilterState>(() => {
@@ -228,7 +231,7 @@ export function Catalog() {
               </FilterGroup>
             )}
 
-            <FilterGroup title="Цена, ₽">
+            <FilterGroup title={`Цена, ${store?.settings.currency ?? 'RUB'}`}>
               <div className="row">
                 <input aria-label="Цена от" type="number" inputMode="numeric" placeholder={`от ${af.priceMin}`} value={filters.priceFrom ?? ''} onChange={(e) => setFilters((f) => ({ ...f, priceFrom: e.target.value ? Number(e.target.value) : undefined }))} />
                 <input aria-label="Цена до" type="number" inputMode="numeric" placeholder={`до ${af.priceMax}`} value={filters.priceTo ?? ''} onChange={(e) => setFilters((f) => ({ ...f, priceTo: e.target.value ? Number(e.target.value) : undefined }))} />

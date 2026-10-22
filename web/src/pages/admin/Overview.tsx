@@ -4,6 +4,7 @@ import { ErrorState, Loader } from '../../components/ui';
 import { Icon } from '../../components/Icon';
 import { adminApi } from '../../lib/api';
 import { useAsync } from '../../lib/useAsync';
+import { money } from '../../lib/format';
 
 interface OverviewData {
   activeProducts: number;
@@ -13,6 +14,10 @@ interface OverviewData {
   catalogViews: { d7: number; d30: number };
   favoriteAdds: number;
   conversion: number;
+  todayVisitors: number;
+  todayOrders: number;
+  revenue30: number;
+  topProducts: { productId: string; title: string; units: number; revenue: number }[];
   recentEvents: { type: string; createdAt: string }[];
 }
 
@@ -53,12 +58,20 @@ export function Overview() {
         <Stat n={data.activeProducts} l="Активных товаров" />
         <Stat n={data.reservedProducts} l="На брони" />
         <Stat n={data.newOrders} l="Новых заявок" />
+        <Stat n={data.todayVisitors} l="Посетителей сегодня" />
+        <Stat n={data.todayOrders} l="Заявок сегодня" />
+        <Stat n={money(data.revenue30, store?.settings.currency)} l="Выручка по завершённым заказам (30д)" />
         <Stat n={data.favoriteAdds} l="В избранном (30д)" />
         <Stat n={data.completedOrders.d7} l="Завершено за 7 дней" />
         <Stat n={data.completedOrders.d30} l="Завершено за 30 дней" />
         <Stat n={data.catalogViews.d7} l="Просмотры каталога (7д)" />
         <Stat n={data.catalogViews.d30} l="Просмотры каталога (30д)" />
         <Stat n={`${data.conversion}%`} l="Конверсия в заявку" />
+      </div>
+
+      <div className="section">
+        <h2>Популярные по продажам за 30 дней</h2>
+        {data.topProducts.length ? <div className="list">{data.topProducts.map((product) => <Link className="event-row" key={product.productId} to={`/admin/products/${product.productId}`}><span>{product.title}<small className="muted"> · {product.units} шт.</small></span><strong>{money(product.revenue, store?.settings.currency)}</strong></Link>)}</div> : <p className="small muted">Завершённых продаж пока нет.</p>}
       </div>
 
       <div className="section">
@@ -74,7 +87,7 @@ export function Overview() {
         </div>
       </div>
 
-      <p className="small muted">Статистика носит справочный характер.</p>
+      <p className="small muted">Выручка — сумма товаров в завершённых заказах без доставки и оформленных возвратов. Поступление денег проверяет продавец.</p>
     </div>
   );
 }

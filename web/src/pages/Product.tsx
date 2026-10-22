@@ -68,8 +68,8 @@ export function ProductPage() {
         {p.isReserved && !p.isSold && <div className="badge reserved" style={{ position: 'static', display: 'inline-block', marginBottom: 8 }}>Забронировано</div>}
         <h1>{p.title}</h1>
         <div style={{ margin: '8px 0' }}>
-          <span className="price" style={{ fontSize: 22 }}>{money(p.price)}</span>
-          {p.oldPrice && <span className="oldprice" style={{ fontSize: 16 }}>{money(p.oldPrice)}</span>}
+          <span className="price" style={{ fontSize: 22 }}>{money(p.price, store?.settings.currency)}</span>
+          {p.oldPrice && <span className="oldprice" style={{ fontSize: 16 }}>{money(p.oldPrice, store?.settings.currency)}</span>}
           {p.discountPercent && <span className="badge sale" style={{ position: 'static', marginLeft: 8 }}>−{p.discountPercent}%</span>}
         </div>
       </div>
@@ -78,6 +78,8 @@ export function ProductPage() {
         {p.brand && <Row k="Бренд" v={p.brand} />}
         {p.variants.length === 1 && <Row k="Размер" v={p.variants[0].size} />}
         {p.color && <Row k="Цвет" v={p.color} />}
+        {p.gender && <Row k="Для кого" v={{ men: 'Мужское', women: 'Женское', unisex: 'Унисекс' }[p.gender]} />}
+        {p.material && <Row k="Материал" v={p.material} />}
         <Row k="Состояние" v={conditionLabel[p.condition]} />
         {store?.city && <Row k="Город" v={store.city} />}
         {store && <Row k="Получение" v={store.settings.deliveryMethods.map((d) => deliveryLabel[d]).join(', ')} />}
@@ -97,12 +99,15 @@ export function ProductPage() {
           <p style={{ whiteSpace: 'pre-wrap' }}>{p.description}</p>
         </div>
       )}
+      {p.measurements && <div className="section"><h2>Замеры</h2><p style={{ whiteSpace: 'pre-wrap' }}>{p.measurements}</p></div>}
+      {p.videoUrl && <div className="section"><h2>Видео товара</h2><video className="product-video-preview" src={assetUrl(p.videoUrl)} controls preload="metadata" /></div>}
       {p.defects && (
         <div className="section">
           <h2>Дефекты</h2>
           <p className="muted" style={{ whiteSpace: 'pre-wrap' }}>{p.defects}</p>
         </div>
       )}
+      {p.defectImages.length > 0 && <div className="section"><h2>Фото дефектов</h2><div className="product-defect-gallery">{p.defectImages.map((url, index) => <a key={url} href={assetUrl(url)} target="_blank" rel="noreferrer" aria-label={`Открыть фото дефекта ${index + 1}`}><img src={assetUrl(url)} alt={`Дефект ${index + 1}`} loading="lazy" /></a>)}</div></div>}
 
       <Link to="/reviews" className="small">Профиль и отзывы продавца →</Link>
 

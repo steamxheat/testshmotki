@@ -1,11 +1,15 @@
 import { Router } from 'express';
+import crypto from 'node:crypto';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import multer from 'multer';
 import { z } from 'zod';
 import { prisma } from '../db.js';
 import { badRequest, forbidden, h } from '../lib/http.js';
 import { logEvent } from '../lib/stats.js';
 import { authenticate } from '../middleware/auth.js';
 import { resolveStore } from '../middleware/store.js';
-import { uploadImages, processUploads } from '../lib/upload.js';
+import { UPLOAD_DIR, uploadImages, processUploads } from '../lib/upload.js';
 import { uploadLimiter } from '../middleware/rateLimit.js';
 
 export const miscRouter = Router();
@@ -101,6 +105,36 @@ miscRouter.patch('/profile', authenticate, resolveStore(), h(async (req, res) =>
   res.json({ ok: true });
 }));
 
+const subscriptionSchema = z.object({
+  newArrivals: z.boolean(),
+  priceDrops: z.boolean(),
+  categoryIds: z.array(z.string()).max(30),
+  brands: z.array(z.string().trim().min(1).max(80)).max(30),
+  sizes: z.array(z.string().trim().min(1).max(40)).max(30),
+});
+
+miscRouter.get('/subscriptions', authenticate, resolveStore(), h(async (req, res) => {
+  const subscription = await prisma.productSubscription.findUnique({ where: { storeId_userId: { storeId: req.store!.id, userId: req.auth!.user.id } } });
+  res.json({ subscription: subscription ? {
+    newArrivals: subscription.newArrivals, priceDrops: subscription.priceDrops,
+    categoryIds: subscription.categoryIds, brands: subscription.brands, sizes: subscription.sizes,
+  } : { newArrivals: false, priceDrops: false, categoryIds: [], brands: [], sizes: [] } });
+}));
+
+miscRouter.put('/subscriptions', authenticate, resolveStore(), h(async (req, res) => {
+  const data = subscriptionSchema.parse(req.body);
+  const categoryIds = [...new Set(data.categoryIds)];
+  const count = await prisma.category.count({ where: { id: { in: categoryIds }, storeId: req.store!.id, status: 'active' } });
+  if (count !== categoryIds.length) throw badRequest('Выберите категории этого магазина');
+  const values = { ...data, categoryIds, brands: [...new Set(data.brands)], sizes: [...new Set(data.sizes)] };
+  await prisma.productSubscription.upsert({
+    where: { storeId_userId: { storeId: req.store!.id, userId: req.auth!.user.id } },
+    create: { ...values, storeId: req.store!.id, userId: req.auth!.user.id },
+    update: values,
+  });
+  res.json({ subscription: values });
+}));
+
 // POST /api/uploads — загрузка изображений (§6.5, §7.2). До 10 файлов.
 miscRouter.post(
   '/uploads',
@@ -131,3 +165,25 @@ miscRouter.post(
     res.json({ urls: processed.map((p) => p.url), thumbs: processed.map((p) => p.thumbUrl) });
   }),
 );
+
+const productVideoUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024, files: 1 }, fileFilter: (_req, file, cb) => {
+  if (!['video/mp4', 'video/webm', 'video/quicktime'].includes(file.mimetype)) return cb(badRequest('Видео товара: MP4, MOV или WebM до 20 МБ'));
+  cb(null, true);
+} });
+
+miscRouter.post('/product-video', authenticate, resolveStore(), uploadLimiter, h(async (req, _res, next) => {
+  const member = await prisma.storeMember.findUnique({ where: { storeId_userId: { storeId: req.store!.id, userId: req.auth!.user.id } } });
+  if (!member) throw forbidden('Видео товара может загрузить только сотрудник магазина');
+  next();
+}), productVideoUpload.single('file'), h(async (req, res) => {
+  const file = req.file;
+  if (!file) throw badRequest('Выберите видео');
+  const mp4 = file.buffer.subarray(4, 8).toString() === 'ftyp';
+  const webm = file.buffer.subarray(0, 4).equals(Buffer.from([0x1a, 0x45, 0xdf, 0xa3]));
+  if (!mp4 && !webm) throw badRequest('Файл не является видео MP4, MOV или WebM');
+  const disk = await fs.statfs(UPLOAD_DIR);
+  if (disk.bavail * disk.bsize < 1024 ** 3 + file.size) throw badRequest('Недостаточно места для видео');
+  const name = `${crypto.randomUUID()}.${webm ? 'webm' : file.mimetype === 'video/quicktime' ? 'mov' : 'mp4'}`;
+  await fs.writeFile(path.join(UPLOAD_DIR, name), file.buffer, { flag: 'wx', mode: 0o600 });
+  res.status(201).json({ url: `/uploads/${name}` });
+}));

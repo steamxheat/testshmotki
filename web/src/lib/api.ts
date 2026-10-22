@@ -6,6 +6,7 @@ import type {
   Filters,
   Order,
   Product,
+  ProductSubscription,
   Profile,
   Review,
   Store,
@@ -125,6 +126,8 @@ export const api = {
 
   profile: () => get<Profile>('/api/profile'),
   updateProfile: (data: { contactName: string; phone: string; contactEmail: string; deliveryCity: string; deliveryAddress: string }) => patch<{ ok: true }>('/api/profile', data),
+  subscriptions: () => get<{ subscription: ProductSubscription }>('/api/subscriptions'),
+  saveSubscriptions: (subscription: ProductSubscription) => put<{ subscription: ProductSubscription }>('/api/subscriptions', subscription),
   logEvent: (type: string, productId?: string) => post('/api/events', { type, productId }).catch(() => undefined),
   upload: async (files: FileList | File[], orderId?: string): Promise<string[]> => {
     const fd = new FormData();
@@ -141,6 +144,13 @@ export const api = {
       throw new ApiError(res.status, data?.error?.code ?? 'upload', data?.error?.message ?? 'Не удалось загрузить фото');
     }
     return (await res.json()).urls as string[];
+  },
+  uploadProductVideo: async (file: File): Promise<string> => {
+    const form = new FormData(); form.append('file', file);
+    const res = await fetch(`${BASE}/api/product-video?store=${getStoreSlug()}`, { method: 'POST', headers: authHeaders(), body: form });
+    const data = await res.json();
+    if (!res.ok) throw new ApiError(res.status, data?.error?.code ?? 'upload', data?.error?.message ?? 'Не удалось загрузить видео');
+    return data.url as string;
   },
 };
 
@@ -159,6 +169,10 @@ export const adminApi = {
   duplicate: (storeId: string, id: string) => post(`/api/admin/${storeId}/products/${id}/duplicate`),
   archive: (storeId: string, id: string) => post(`/api/admin/${storeId}/products/${id}/archive`),
   bulkArchive: (storeId: string, ids: string[]) => post(`/api/admin/${storeId}/products/bulk-archive`, { ids }),
+  bulkPrice: (storeId: string, ids: string[], percent: number) => post<{ changed: number }>(`/api/admin/${storeId}/products/bulk-price`, { ids, percent }),
+  bulkStatus: (storeId: string, ids: string[], status: 'draft' | 'published' | 'archived') => post<{ changed: number }>(`/api/admin/${storeId}/products/bulk-status`, { ids, status }),
+  publishToChannel: (storeId: string, id: string) => post<{ channel: { channelPostAt: string | null; channelPostError: string | null } }>(`/api/admin/${storeId}/products/${id}/channel`),
+  channelStatus: (storeId: string) => get<{ ready: boolean; reason: string | null }>(`/api/admin/${storeId}/channel/status`),
 
   categories: (storeId: string) => get<{ categories: Category[] }>(`/api/admin/${storeId}/categories`),
   createCategory: (storeId: string, body: unknown) => post(`/api/admin/${storeId}/categories`, body),
@@ -189,7 +203,7 @@ export const adminApi = {
   setReviewVisibility: (storeId: string, id: string, status: 'published' | 'hidden') =>
     post(`/api/admin/${storeId}/reviews/${id}/visibility`, { status }),
 
-  settings: (storeId: string) => get<{ store: Store; paymentDetails: string; myRole: 'owner' | 'manager'; members: { userId: string; role: string; telegramId: string; firstName: string | null; username: string | null }[] }>(`/api/admin/${storeId}/settings`),
+  settings: (storeId: string) => get<{ store: Store; paymentDetails: string; currencyLocked: boolean; myRole: 'owner' | 'manager'; members: { userId: string; role: string; telegramId: string; firstName: string | null; username: string | null }[] }>(`/api/admin/${storeId}/settings`),
   updateSettings: (storeId: string, body: unknown) => patch<{ store: Store }>(`/api/admin/${storeId}/settings`, body),
   addMember: (storeId: string, telegramId: string) => post(`/api/admin/${storeId}/members`, { telegramId }),
   removeMember: (storeId: string, userId: string) => del(`/api/admin/${storeId}/members/${userId}`),

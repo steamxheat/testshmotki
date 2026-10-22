@@ -21,6 +21,8 @@ export function Settings() {
   const [store, setStore] = useState<Store | null>(null);
   const [members, setMembers] = useState<{ userId: string; role: string; telegramId: string; firstName: string | null; username: string | null }[]>([]);
   const [isOwner, setIsOwner] = useState(false);
+  const [currencyLocked, setCurrencyLocked] = useState(false);
+  const [channelState, setChannelState] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -35,7 +37,7 @@ export function Settings() {
     setLoading(true);
     setError(null);
     adminApi.settings(ctxStore!.id)
-      .then((r) => { setStore(r.store); setPaymentDetails(r.paymentDetails ?? ''); setMembers(r.members); setIsOwner(r.myRole === 'owner'); })
+      .then((r) => { setStore(r.store); setPaymentDetails(r.paymentDetails ?? ''); setMembers(r.members); setIsOwner(r.myRole === 'owner'); setCurrencyLocked(r.currencyLocked); })
       .catch((e) => setError(e instanceof ApiError ? e.message : 'Не удалось загрузить настройки'))
       .finally(() => setLoading(false));
   }
@@ -79,6 +81,8 @@ export function Settings() {
           legalAddress: store!.settings.legalAddress,
           legalEmail: store!.settings.legalEmail,
           paymentDetails,
+          currency: store!.settings.currency,
+          channelUsername: store!.settings.channelUsername,
           deliveryOptions: store!.settings.deliveryOptions,
           showSold: store!.settings.showSold,
           blocks: store!.settings.blocks,
@@ -114,6 +118,14 @@ export function Settings() {
     } catch { toast('Не удалось обновить список сотрудников'); }
   }
 
+  async function checkChannel() {
+    setChannelState('Проверяем доступ бота…');
+    try {
+      const result = await adminApi.channelStatus(ctxStore!.id);
+      setChannelState(result.ready ? 'Бот может публиковать товары в канале' : result.reason || 'Публикация недоступна');
+    } catch (e) { setChannelState(e instanceof ApiError ? e.message : 'Не удалось проверить канал'); }
+  }
+
   const toggleDelivery = (d: DeliveryMethod) => {
     const next = store.settings.deliveryMethods.includes(d) ? store.settings.deliveryMethods.filter((x) => x !== d) : [...store.settings.deliveryMethods, d];
     if (!next.length) { toast('Оставьте хотя бы один способ получения'); return; }
@@ -127,6 +139,8 @@ export function Settings() {
 
       <div className="field"><label>Название</label><input aria-label="Название магазина" value={store.name} onChange={(e) => upd({ name: e.target.value })} /></div>
       <div className="field"><label>Адрес магазина (slug)</label><input aria-label="Адрес магазина" value={store.slug} onChange={(e) => upd({ slug: e.target.value })} /><p className="small muted">Менять можно не чаще 1 раза в 30 дней. После смены адреса старые ссылки на магазин перестанут работать.</p></div>
+      <div className="field"><label htmlFor="store-currency">Валюта магазина</label><div className="select-wrap"><select id="store-currency" value={store.settings.currency} disabled={currencyLocked} onChange={(e) => updSettings({ currency: e.target.value as Store['settings']['currency'], ...(e.target.value !== 'RUB' ? { cdekMode: 'manual' } : {}) })}><option value="RUB">Российский рубль (₽)</option><option value="BYN">Белорусский рубль (Br)</option><option value="USD">Доллар США ($)</option></select><Icon name="chevronDown" size={18} /></div><p className="small muted">{currencyLocked ? 'Валюту нельзя менять после добавления товаров: иначе исказятся старые цены и заказы.' : 'Выберите до первого товара. Автоматический СДЭК доступен только для ₽.'}</p></div>
+      <div className="field"><label htmlFor="store-channel">Telegram-канал магазина</label><input id="store-channel" value={store.settings.channelUsername ?? ''} onChange={(e) => updSettings({ channelUsername: e.target.value })} placeholder="@название_канала" /><p className="small muted">После сохранения новые товары будут публиковаться в канале. Добавьте бота администратором с правом публикации.</p><button type="button" className="btn small outline" onClick={checkChannel}>Проверить подключение</button>{channelState && <p className="small" role="status">{channelState}</p>}</div>
       <div className="field"><label>Описание</label><textarea aria-label="Описание магазина" value={store.description ?? ''} onChange={(e) => upd({ description: e.target.value })} /></div>
       <div className="row">
         <div className="field"><label>Город</label><input aria-label="Город" value={store.city ?? ''} onChange={(e) => upd({ city: e.target.value })} /></div>
@@ -178,7 +192,7 @@ export function Settings() {
         <label htmlFor="cdek-mode">Оформление СДЭК</label>
         <div className="select-wrap"><select id="cdek-mode" value={store.settings.cdekMode} onChange={(e) => updSettings({ cdekMode: e.target.value as 'manual' | 'automatic' })}>
           <option value="manual">Вручную — без API</option>
-          <option value="automatic">Через подключённый кабинет СДЭК</option>
+          <option value="automatic" disabled={store.settings.currency !== 'RUB'}>Через подключённый кабинет СДЭК {store.settings.currency !== 'RUB' ? '(только ₽)' : ''}</option>
         </select></div>
         <p className="small muted">Вручную: покупатель выбирает ПВЗ, вы подтверждаете заявку, называете стоимость доставки, оформляете отправление в СДЭК и вводите трек-номер. Автоматический режим доступен после подключения ключей.</p>
       </div>}
@@ -204,7 +218,7 @@ export function Settings() {
           <div className="row"><div className="field"><label>Способ</label><div className="select-wrap"><select aria-label="Способ получения точки" value={o.method} onChange={(e) => updateOption(o.id, { method: e.target.value as DeliveryOption['method'] })}>{POINT_METHODS.map((method) => <option key={method} value={method}>{deliveryLabel[method]}</option>)}</select></div></div><div className="field"><label>Город</label><input aria-label="Город пункта" value={o.city} onChange={(e) => updateOption(o.id, { city: e.target.value })} /></div></div>
           <div className="field"><label>Название места</label><input aria-label="Название пункта" value={o.point} onChange={(e) => updateOption(o.id, { point: e.target.value })} placeholder="У метро Тверская" /></div>
           <div className="field"><label>Адрес</label><input aria-label="Адрес пункта" value={o.address} onChange={(e) => updateOption(o.id, { address: e.target.value })} /></div>
-          <div className="row"><div className="field"><label>Тариф</label><input aria-label="Тариф" value={o.tariff} onChange={(e) => updateOption(o.id, { tariff: e.target.value })} placeholder="Стандарт" /></div><div className="field"><label>Стоимость, ₽</label><input aria-label="Стоимость доставки" type="number" min={0} max={100000} value={o.price} onChange={(e) => updateOption(o.id, { price: Math.max(0, Number(e.target.value) || 0) })} /></div></div>
+          <div className="row"><div className="field"><label>Тариф</label><input aria-label="Тариф" value={o.tariff} onChange={(e) => updateOption(o.id, { tariff: e.target.value })} placeholder="Стандарт" /></div><div className="field"><label>Стоимость, {store.settings.currency}</label><input aria-label="Стоимость доставки" type="number" min={0} max={100000} value={o.price} onChange={(e) => updateOption(o.id, { price: Math.max(0, Number(e.target.value) || 0) })} /></div></div>
           <div className="row"><div className="field"><label>Срок (необязательно)</label><input aria-label="Срок доставки" value={o.eta ?? ''} onChange={(e) => updateOption(o.id, { eta: e.target.value })} placeholder="3–5 дней" /></div><button className="btn small outline" onClick={() => updSettings({ deliveryOptions: store.settings.deliveryOptions.filter((item) => item.id !== o.id) })}>Убрать</button></div>
           <button className="btn small secondary" type="button" aria-expanded={mapOptionId === o.id} onClick={() => setMapOptionId(mapOptionId === o.id ? null : o.id)}>{o.lat == null ? 'Указать точку на карте' : 'Изменить точку на карте'}</button>
           {mapOptionId === o.id && <div className="delivery-editor-map"><p className="small muted">Перемещайте карту двумя пальцами, затем нажмите на нужное место. Адрес пункта выше заполняется отдельно.</p><Suspense fallback={<div className="delivery-map-placeholder">Загружаем карту…</div>}><DeliveryMap points={[]} location={o.lat != null && o.lon != null ? { lat: o.lat, lon: o.lon } : undefined} onPickLocation={(position) => updateOption(o.id, position)} /></Suspense>

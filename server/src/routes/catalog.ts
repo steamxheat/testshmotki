@@ -28,7 +28,7 @@ const listQuery = z.object({
   priceTo: z.coerce.number().optional(),
   discounted: z.enum(['1', 'true']).optional(),
   availableOnly: z.enum(['1', 'true']).optional(),
-  sort: z.enum(['new', 'price_asc', 'price_desc', 'discount']).default('new'),
+  sort: z.enum(['new', 'price_asc', 'price_desc', 'discount', 'popular']).default('new'),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(50).default(20),
 });
@@ -125,10 +125,15 @@ catalogRouter.get(
 
     let total: number;
     let items;
-    if (q.sort === 'discount') {
+    if (q.sort === 'discount' || q.sort === 'popular') {
       // shortcut: ранжируем цены в памяти для каталога до нескольких тысяч вещей; при росте нужен индексированный процент в БД.
-      const ranked = await prisma.product.findMany({ where, select: { id: true, priceAmount: true, oldPriceAmount: true } });
-      ranked.sort((a, b) => {
+      const ranked = await prisma.product.findMany({ where, select: { id: true, priceAmount: true, oldPriceAmount: true, publishedAt: true } });
+      if (q.sort === 'popular') {
+        const activity = await prisma.event.groupBy({ by: ['productId', 'type'], where: { storeId: store.id, productId: { in: ranked.map((item) => item.id) }, type: { in: ['product_view', 'order_created'] }, createdAt: { gte: new Date(Date.now() - 30 * 864e5) } }, _count: { _all: true } });
+        const scores = new Map<string, number>();
+        for (const row of activity) if (row.productId) scores.set(row.productId, (scores.get(row.productId) ?? 0) + row._count._all * (row.type === 'order_created' ? 5 : 1));
+        ranked.sort((a, b) => (scores.get(b.id) ?? 0) - (scores.get(a.id) ?? 0) || (b.publishedAt?.getTime() ?? 0) - (a.publishedAt?.getTime() ?? 0) || a.id.localeCompare(b.id));
+      } else ranked.sort((a, b) => {
         const aDiscount = a.oldPriceAmount && a.oldPriceAmount > a.priceAmount ? 1 - a.priceAmount / a.oldPriceAmount : 0;
         const bDiscount = b.oldPriceAmount && b.oldPriceAmount > b.priceAmount ? 1 - b.priceAmount / b.oldPriceAmount : 0;
         return bDiscount - aDiscount || a.id.localeCompare(b.id);

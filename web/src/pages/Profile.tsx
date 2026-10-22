@@ -6,6 +6,9 @@ import { api, ApiError } from '../lib/api';
 import { useAsync } from '../lib/useAsync';
 import { isTelegram } from '../lib/telegram';
 import { useStore, useToast } from '../app/providers';
+import type { Filters, ProductSubscription } from '../types';
+
+const emptySubscription: ProductSubscription = { newArrivals: false, priceDrops: false, categoryIds: [], brands: [], sizes: [] };
 
 export function Profile() {
   const { store } = useStore();
@@ -18,6 +21,10 @@ export function Profile() {
   const [contactEmail, setContactEmail] = useState('');
   const [deliveryCity, setDeliveryCity] = useState('');
   const [deliveryAddress, setDeliveryAddress] = useState('');
+  const [subscription, setSubscription] = useState<ProductSubscription>(emptySubscription);
+  const [subscriptionFilters, setSubscriptionFilters] = useState<Filters | null>(null);
+  const [subscriptionError, setSubscriptionError] = useState<string | null>(null);
+  const [subscriptionSaving, setSubscriptionSaving] = useState(false);
 
   useEffect(() => {
     if (!data) return;
@@ -27,6 +34,26 @@ export function Profile() {
     setDeliveryCity(data.user.deliveryCity ?? '');
     setDeliveryAddress(data.user.deliveryAddress ?? '');
   }, [data]);
+
+  useEffect(() => {
+    let active = true;
+    setSubscriptionError(null);
+    Promise.all([api.subscriptions(), api.filters()]).then(([saved, filters]) => {
+      if (active) { setSubscription(saved.subscription); setSubscriptionFilters(filters); }
+    }).catch(() => { if (active) setSubscriptionError('Не удалось загрузить подписки'); });
+    return () => { active = false; };
+  }, [store?.id]);
+
+  function togglePreference(key: 'categoryIds' | 'brands' | 'sizes', value: string) {
+    setSubscription((current) => ({ ...current, [key]: current[key].includes(value) ? current[key].filter((item) => item !== value) : [...current[key], value] }));
+  }
+
+  async function saveSubscription() {
+    setSubscriptionSaving(true);
+    try { await api.saveSubscriptions(subscription); toast('Подписки сохранены'); }
+    catch (error) { toast(error instanceof ApiError ? error.message : 'Не удалось сохранить подписки'); }
+    finally { setSubscriptionSaving(false); }
+  }
 
   async function save(e: FormEvent) {
     e.preventDefault();
@@ -74,6 +101,22 @@ export function Profile() {
         </form> : <p className="small muted" style={{ marginBottom: 0 }}>{data.user.contactName || data.user.phone || data.user.contactEmail || data.user.deliveryAddress ? [data.user.contactName, data.user.phone, data.user.contactEmail, data.user.deliveryCity, data.user.deliveryAddress].filter(Boolean).join(' · ') : 'Добавьте контакты и адрес для быстрого оформления заказа.'}</p>}
       </section>
 
+      <section className="card subscription-settings">
+        <h2>Уведомления о вещах</h2>
+        <p className="small muted">По желанию: бот сообщит о новых товарах и снижении цены. Без подписки рекламных сообщений не будет.</p>
+        {subscriptionError ? <p role="alert" className="small">{subscriptionError}</p> : !subscriptionFilters ? <Loader /> : <>
+          <label className="subscription-toggle"><input type="checkbox" checked={subscription.newArrivals} onChange={(e) => setSubscription((current) => ({ ...current, newArrivals: e.target.checked }))} /> Новые товары</label>
+          <label className="subscription-toggle"><input type="checkbox" checked={subscription.priceDrops} onChange={(e) => setSubscription((current) => ({ ...current, priceDrops: e.target.checked }))} /> Снижение цены</label>
+          {(subscription.newArrivals || subscription.priceDrops) && <>
+            <p className="small muted">Выберите интересующие категории, бренды и размеры. Если ничего не выбрать, уведомления будут обо всех товарах. Совпадения достаточно по одному признаку.</p>
+            <Preference title="Категории" items={subscriptionFilters.categories.map((item) => ({ value: item.id, label: item.name }))} selected={subscription.categoryIds} onToggle={(value) => togglePreference('categoryIds', value)} />
+            <Preference title="Бренды" items={subscriptionFilters.brands.map((value) => ({ value, label: value }))} selected={subscription.brands} onToggle={(value) => togglePreference('brands', value)} />
+            <Preference title="Размеры" items={subscriptionFilters.sizes.map((value) => ({ value, label: value }))} selected={subscription.sizes} onToggle={(value) => togglePreference('sizes', value)} />
+          </>}
+          <button className="btn small" type="button" disabled={subscriptionSaving} onClick={saveSubscription}>{subscriptionSaving ? 'Сохраняем…' : 'Сохранить подписки'}</button>
+        </>}
+      </section>
+
       <div className="card" style={{ padding: '4px 14px', marginTop: 4 }}>
         <div className="kv"><span className="k">Мои заказы</span><Link className="text-action" to="/orders">Открыть</Link></div>
         <div className="kv"><span className="k">Уведомления</span><span className="small muted">Приходят в Telegram</span></div>
@@ -85,6 +128,11 @@ export function Profile() {
       {import.meta.env.DEV && !isTelegram && <DevPanel />}
     </div>
   );
+}
+
+function Preference({ title, items, selected, onToggle }: { title: string; items: { value: string; label: string }[]; selected: string[]; onToggle: (value: string) => void }) {
+  if (!items.length) return null;
+  return <div className="subscription-preference"><div className="small muted">{title}</div><div className="chips wrap-chips">{items.map((item) => <button key={item.value} type="button" className={`chip ${selected.includes(item.value) ? 'active' : ''}`} aria-pressed={selected.includes(item.value)} onClick={() => onToggle(item.value)}>{item.label}</button>)}</div></div>;
 }
 
 // Только для отладки в браузере: вход под нужным Telegram ID (например, владельца магазина).
