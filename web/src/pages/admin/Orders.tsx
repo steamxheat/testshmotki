@@ -28,6 +28,8 @@ export function AdminOrders() {
   const [manualTracking, setManualTracking] = useState<Record<string, string>>({});
   const [refundId, setRefundId] = useState<string | null>(null);
   const [refundReference, setRefundReference] = useState('');
+  const [paymentRejectId, setPaymentRejectId] = useState<string | null>(null);
+  const [paymentRejectReason, setPaymentRejectReason] = useState('');
 
   useEffect(() => {
     let active = true;
@@ -98,6 +100,13 @@ export function AdminOrders() {
     catch (e) { toast(e instanceof ApiError ? e.message : 'Не удалось записать возврат'); }
   }
 
+  async function rejectPayment(o: Order) {
+    if (paymentRejectReason.trim().length < 10) { toast('Опишите, почему перевод не подтверждён'); return; }
+    if (!confirm('Вы проверили поступления и уверены, что деньги не пришли? Заявка будет закрыта, остаток освобождён, а покупатель получит вашу причину.')) return;
+    try { await adminApi.paymentReject(store!.id, o.id, paymentRejectReason.trim()); toast('Заявка закрыта, покупатель уведомлён'); setPaymentRejectId(null); setPaymentRejectReason(''); reload(); }
+    catch (e) { toast(e instanceof ApiError ? e.message : 'Не удалось закрыть заявку'); }
+  }
+
   return (
     <div className="page">
       <h1 style={{ marginBottom: 12 }}>Заказы</h1>
@@ -140,6 +149,7 @@ export function AdminOrders() {
                 {o.deliveryPrice != null && <div className="small"><b>С покупателя всего: {money(o.price + o.deliveryPrice)}</b></div>}
                 {o.shipment && <div className="small" style={{ marginTop: 8 }}><b>{deliveryLabel[o.deliveryMethod]} · {o.shipment.mode === 'manual' ? 'вручную' : o.shipment.mode === 'test' ? 'тест' : 'рабочая среда'}</b><div>Состояние: {o.shipment.mode === 'manual' ? 'трек-номер внесён продавцом' : o.shipment.state === 'created' ? 'накладная создана' : o.shipment.state === 'submitted' ? 'СДЭК обрабатывает запрос' : o.shipment.state === 'invalid' ? 'СДЭК отклонил накладную' : 'результат не подтверждён'}</div>{o.shipment.trackingNumber && <div>Трек-номер: {o.shipment.trackingNumber}</div>}{o.shipment.originPoint && <div>Пункт сдачи: {o.shipment.originPoint}</div>}{o.shipment.error && <div role="alert">{o.shipment.error}</div>}</div>}
                 {o.refundConfirmedAt && <div className="small" style={{ marginTop: 8 }}>Возврат записан: {money(o.refundAmount ?? 0)} · {dateShort(o.refundConfirmedAt)}. Подтверждение: {o.refundReference}</div>}
+                {o.rejectionReason && <div className="small" style={{ marginTop: 8 }}>Причина отказа: {o.rejectionReason}</div>}
                 {o.comment && <div className="small muted" style={{ marginTop: 4 }}>«{o.comment}»</div>}
               </div>
 
@@ -174,7 +184,9 @@ export function AdminOrders() {
                 {o.status === 'confirmed' && o.paymentConfirmedAt && o.shipment?.state === 'created' && o.shipment.mode !== 'test' && o.shipment.trackingNumber && !['meetup', 'discuss'].includes(o.deliveryMethod) && <button className="btn small" onClick={() => action(o, 'send')}>Передано перевозчику</button>}
                 {(o.status === 'sent' || (o.status === 'confirmed' && ['meetup', 'discuss'].includes(o.deliveryMethod))) && <button className="btn small" onClick={() => action(o, 'complete')} disabled={!o.paymentConfirmedAt}>Вручено покупателю</button>}
                 {o.status === 'confirmed' && o.paymentConfirmedAt && !o.shipment && <button className="btn small outline" onClick={() => { setRefundId(o.id); setRefundReference(''); }}>Записать возврат</button>}
+                {o.status === 'confirmed' && o.receiptSubmittedAt && !o.paymentConfirmedAt && <button className="btn small danger" onClick={() => { setPaymentRejectId(o.id); setPaymentRejectReason(''); }}>Платёж не поступил</button>}
               </div>
+              {paymentRejectId === o.id && <div className="order-shipment"><strong>Платёж не подтверждён</strong><p className="small muted">Проверьте счёт и чек до закрытия заявки. Если деньги пришли, подтвердите оплату выше. При отказе покупатель увидит причину и сможет написать вам в чате.</p><div className="field"><label htmlFor={`reject-payment-${o.id}`}>Причина для покупателя</label><textarea id={`reject-payment-${o.id}`} value={paymentRejectReason} maxLength={500} onChange={(e) => setPaymentRejectReason(e.target.value)} /></div><div className="row"><button className="btn small danger" onClick={() => rejectPayment(o)}>Закрыть заявку</button><button className="btn small outline" onClick={() => setPaymentRejectId(null)}>Назад</button></div></div>}
               {refundId === o.id && <div className="order-shipment"><strong>Возврат всей суммы</strong><p className="small muted">Сначала переведите деньги покупателю вне приложения. После этого укажите номер операции или другое подтверждение; приложение только зафиксирует возврат.</p><div className="field"><label htmlFor={`refund-${o.id}`}>Подтверждение возврата</label><input id={`refund-${o.id}`} value={refundReference} maxLength={200} onChange={(e) => setRefundReference(e.target.value)} /></div><div className="row"><button className="btn small danger" onClick={() => recordRefund(o)}>Деньги возвращены</button><button className="btn small outline" onClick={() => setRefundId(null)}>Назад</button></div></div>}
             </div>
           ))}

@@ -294,7 +294,9 @@ model Order {
   comment              String?
   receiptFilename      String?        @map("receipt_filename")
   receiptSubmittedAt   DateTime?      @map("receipt_submitted_at")
+  receiptReviewRemindedAt DateTime?    @map("receipt_review_reminded_at")
   paymentConfirmedAt   DateTime?      @map("payment_confirmed_at")
+  rejectionReason      String?        @map("rejection_reason")
   refundAmount         Int?           @map("refund_amount")
   refundConfirmedAt    DateTime?      @map("refund_confirmed_at")
   refundReference      String?        @map("refund_reference")

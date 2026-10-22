@@ -61,6 +61,23 @@ export async function notifyExpiringSoon(): Promise<void> {
   }
 }
 
+export async function remindUnreviewedReceipts(): Promise<void> {
+  const cutoff = new Date(Date.now() - 24 * 3600_000);
+  const orders = await prisma.order.findMany({
+    where: { status: 'confirmed', receiptSubmittedAt: { lte: cutoff }, paymentConfirmedAt: null,
+      OR: [{ receiptReviewRemindedAt: null }, { receiptReviewRemindedAt: { lte: cutoff } }] },
+    include: { store: { include: { members: { where: { role: 'owner' }, include: { user: true }, take: 1 } } } },
+    take: 50,
+  });
+  for (const order of orders) {
+    const owner = order.store.members[0]?.user;
+    if (!owner) continue;
+    const changed = await prisma.order.updateMany({ where: { id: order.id, status: 'confirmed', paymentConfirmedAt: null, receiptSubmittedAt: { lte: cutoff },
+      OR: [{ receiptReviewRemindedAt: null }, { receiptReviewRemindedAt: { lte: cutoff } }] }, data: { receiptReviewRemindedAt: new Date() } });
+    if (changed.count) notifySeller.paymentReviewReminder(owner.telegramId, order.publicNumber, order.store.slug);
+  }
+}
+
 let refreshingShipments = false;
 export async function refreshPendingShipments(): Promise<void> {
   if (refreshingShipments) return;
@@ -79,6 +96,7 @@ export function startReservationCron(): void {
   cron.schedule('* * * * *', () => {
     expireOverdueReservations().catch((e) => console.error('[cron]', e));
     notifyExpiringSoon().catch((e) => console.error('[cron]', e));
+    remindUnreviewedReceipts().catch((e) => console.error('[cron] receipt review', e));
     deliverPendingNotifications().catch((e) => console.error('[cron] notification delivery', e));
   });
   cron.schedule('*/5 * * * *', () => refreshPendingShipments().catch((e) => console.error('[cron] CDEK status', e)));

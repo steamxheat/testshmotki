@@ -136,6 +136,7 @@ export interface Order {
   refundAmount: number | null;
   refundConfirmedAt: string | null;
   refundReference: string | null;
+  rejectionReason: string | null;
   paymentDetails: string | null;
   comment: string | null;
   status: OrderStatus;

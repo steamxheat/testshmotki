@@ -133,6 +133,10 @@ def route_api(route):
     elif path.endswith("/cdek/manual-price") and request.method == "POST":
         order["deliveryPrice"] = body["price"]
         result = {"ok": True}
+    elif path.endswith("/payment-reject") and request.method == "POST":
+        order["status"] = "rejected"
+        order["rejectionReason"] = body["reason"]
+        result = {"ok": True}
     elif path.endswith("/reviews"):
         result = {"items": []}
     elif path.endswith("/settings") and request.method == "PATCH":
@@ -418,6 +422,24 @@ with sync_playwright() as playwright:
     assert not dark_page.evaluate("document.documentElement.scrollWidth > window.innerWidth")
     dark_page.screenshot(path="/tmp/shmotki-admin-orders-dark.png", full_page=True)
     dark.close()
+
+    order["status"] = "confirmed"
+    order["receiptSubmittedAt"] = "2026-10-18T10:00:00Z"
+    review_context = browser.new_context(viewport={"width": 375, "height": 812})
+    review_page = review_context.new_page()
+    review_page.route("https://telegram.org/js/**", lambda route: route.abort())
+    review_page.route("**/shmotki/api/**", route_api)
+    review_page.on("dialog", lambda dialog: dialog.accept())
+    review_page.goto(BASE + "admin/orders")
+    review_page.get_by_role("button", name="Платёж не поступил").click()
+    review_page.get_by_label("Причина для покупателя").fill("Перевод не найден на счёте продавца")
+    review_page.get_by_role("button", name="Закрыть заявку").click()
+    review_page.get_by_text("Причина отказа: Перевод не найден на счёте продавца").wait_for()
+    assert order["status"] == "rejected"
+    review_context.close()
+    order["status"] = "pending"
+    order["receiptSubmittedAt"] = None
+    order["rejectionReason"] = None
 
     offline = browser.new_context(viewport={"width": 375, "height": 812})
     offline_page = offline.new_page()

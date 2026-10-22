@@ -218,6 +218,24 @@ try {
   assert.equal(refunded.refundAmount, 150);
   assert.equal((await prisma.productVariant.findUniqueOrThrow({ where: { id: refundProduct.variants[0].id } })).reservedQuantity, 0);
 
+  const disputed = await submit([{ productId: refundProduct.id, variantId: refundProduct.variants[0].id, quantity: 1 }]);
+  assert.equal(disputed.status, 201);
+  const disputedId = disputed.data.order.id;
+  assert.equal((await call(`/api/admin/${store.id}/orders/${disputedId}/accept`, ownerId, ownerName, 'POST')).status, 200);
+  const disputedReceipt = await fetch(`${base}/api/orders/${disputedId}/receipt?store=${store.slug}`, { method: 'POST', headers: { 'X-Dev-User': auth(buyerTelegramId, marker) }, body: receiptForm });
+  assert.equal(disputedReceipt.status, 200);
+  await prisma.order.update({ where: { id: disputedId }, data: { receiptSubmittedAt: new Date(Date.now() - 25 * 3600_000) } });
+  const { remindUnreviewedReceipts } = await import('../dist/jobs/reservations.js');
+  await remindUnreviewedReceipts();
+  const remindedAt = (await prisma.order.findUniqueOrThrow({ where: { id: disputedId } })).receiptReviewRemindedAt;
+  assert(remindedAt, 'Продавец должен получать напоминание о непроверенном чеке');
+  await remindUnreviewedReceipts();
+  assert.equal((await prisma.order.findUniqueOrThrow({ where: { id: disputedId } })).receiptReviewRemindedAt.getTime(), remindedAt.getTime(), 'Напоминание не должно повторяться каждую минуту');
+  assert.equal((await call(`/api/admin/${store.id}/orders/${disputedId}/payment-reject`, ownerId, ownerName, 'POST', { reason: 'Перевод не найден на счёте продавца' })).status, 200);
+  assert.equal((await prisma.order.findUniqueOrThrow({ where: { id: disputedId } })).status, 'rejected');
+  assert.equal((await prisma.productVariant.findUniqueOrThrow({ where: { id: refundProduct.variants[0].id } })).reservedQuantity, 0);
+  assert.equal((await call(`/api/admin/${store.id}/orders/${disputedId}/payment-confirm`, ownerId, ownerName, 'POST')).status, 400);
+
   const thirdProduct = await prisma.product.create({ data: { storeId: store.id, title: `${marker} доставка`, priceAmount: 12000, condition: 'good', status: 'published', publishedAt: new Date(), variants: { create: { size: 'S', stockQuantity: 1 } } }, include: { variants: true } });
   productIds.push(thirdProduct.id);
   const incompleteDelivery = await call('/api/orders', buyerTelegramId, marker, 'POST', { items: [{ productId: thirdProduct.id, variantId: thirdProduct.variants[0].id, quantity: 1 }], buyerName: marker, deliveryMethod: 'cdek', consent: true, termsAccepted: true });

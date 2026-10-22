@@ -478,6 +478,21 @@ adminRouter.post('/:storeId/orders/:id/refund', h(async (req, res) => {
   res.json({ ok: true });
 }));
 
+adminRouter.post('/:storeId/orders/:id/payment-reject', h(async (req, res) => {
+  const { reason } = z.object({ reason: z.string().trim().min(10).max(500) }).parse(req.body);
+  const order = await prisma.order.findFirst({ where: { id: req.params.id, storeId: req.store!.id }, include: { buyer: true } });
+  if (!order) throw notFound('Заказ не найден');
+  if (order.status !== 'confirmed' || !order.receiptSubmittedAt || order.paymentConfirmedAt) throw badRequest('Можно отклонить только неподтверждённый платёж с приложенным чеком');
+  await prisma.$transaction(async (tx) => {
+    const changed = await tx.order.updateMany({ where: { id: order.id, status: 'confirmed', receiptSubmittedAt: { not: null }, paymentConfirmedAt: null }, data: { status: 'rejected', rejectionReason: reason } });
+    if (!changed.count) throw conflict('Статус заказа уже изменился');
+    await tx.orderStatusHistory.create({ data: { orderId: order.id, oldStatus: 'confirmed', newStatus: 'rejected', changedByUserId: req.auth!.user.id } });
+    await releaseOrderStock(tx, order.id, false);
+  });
+  notifyBuyer.paymentRejected(order.buyer.telegramId, order.publicNumber, reason, req.store!.slug);
+  res.json({ ok: true });
+}));
+
 adminRouter.post('/:storeId/orders/:id/payment-confirm', h(async (req, res) => {
   const order = await prisma.order.findFirst({ where: { id: req.params.id, storeId: req.store!.id }, include: { buyer: true } });
   if (!order) throw notFound('Заказ не найден');

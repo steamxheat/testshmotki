@@ -55,6 +55,7 @@ export function Orders() {
                   {o.deliveryPrice != null && <div className="small"><b>Итого с доставкой: {money(o.price + o.deliveryPrice)}</b></div>}
                   {(o.shipment?.mode === 'live' || o.shipment?.mode === 'manual') && o.shipment.trackingNumber && <div className="small"><b>{deliveryLabel[o.deliveryMethod]}: {o.shipment.trackingNumber}</b><div className="muted">{o.status === 'sent' ? 'Продавец подтвердил передачу отправления перевозчику.' : o.shipment.mode === 'manual' ? 'Трек-номер внесён продавцом; передача перевозчику ещё не подтверждена.' : 'Накладная создана; передача перевозчику ещё не подтверждена.'}</div></div>}
                   {o.refundConfirmedAt && <div className="small">Продавец отметил возврат {money(o.refundAmount ?? 0)}. Если деньги не поступили, напишите ему в чате.</div>}
+                  {o.rejectionReason && <div className="small">Продавец не подтвердил оплату: {o.rejectionReason}. Если вы перевели деньги, напишите ему в чате.</div>}
                 </div>
               </div>
               {(['confirmed', 'sent', 'completed'].includes(o.status)) && <div className="order-payment">

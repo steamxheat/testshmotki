@@ -207,7 +207,7 @@ ordersRouter.post('/:id/receipt', receiptLimiter, receiptUpload.single('file'), 
   const filename = `${crypto.randomUUID()}.${ext}`;
   await fs.writeFile(path.join(receiptDir, filename), buffer, { flag: 'wx', mode: 0o600 });
   try {
-    const saved = await prisma.order.updateMany({ where: { id: order.id, status: 'confirmed', paymentConfirmedAt: null, OR: [{ reservedUntil: { gt: new Date() } }, { receiptSubmittedAt: { not: null } }] }, data: { receiptFilename: filename, receiptSubmittedAt: new Date() } });
+    const saved = await prisma.order.updateMany({ where: { id: order.id, status: 'confirmed', paymentConfirmedAt: null, OR: [{ reservedUntil: { gt: new Date() } }, { receiptSubmittedAt: { not: null } }] }, data: { receiptFilename: filename, receiptSubmittedAt: new Date(), receiptReviewRemindedAt: null } });
     if (!saved.count) throw conflict('Бронь уже завершилась. Обновите заказ перед отправкой чека');
   }
   catch (error) { await fs.unlink(path.join(receiptDir, filename)).catch(() => undefined); throw error; }

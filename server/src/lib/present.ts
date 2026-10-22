@@ -149,6 +149,7 @@ export function presentOrder(
     refundAmount: o.refundAmount == null ? null : kopecksToRubles(o.refundAmount),
     refundConfirmedAt: o.refundConfirmedAt,
     refundReference: o.refundReference,
+    rejectionReason: o.rejectionReason,
     paymentDetails: o.status === 'confirmed' && (o.deliveryMethod !== 'cdek' || o.deliveryPriceAmount != null) ? paymentDetails ?? null : null,
     comment: o.comment,
     status: o.status,

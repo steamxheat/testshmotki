@@ -93,6 +93,8 @@ export const notifyBuyer = {
     send(tgId, `Заказ <b>#${n}</b> передан перевозчику. Трек-номер: <b>${escapeHtml(tracking)}</b>.`, { text: 'Открыть заказ', path: '/orders', storeSlug }),
   orderRefunded: (tgId: bigint, n: string, storeSlug?: string) =>
     send(tgId, `Продавец отметил возврат средств по заказу <b>#${n}</b>. Если деньги не поступили, напишите продавцу в чате.`, { text: 'Открыть заказ', path: '/orders', storeSlug }),
+  paymentRejected: (tgId: bigint, n: string, reason: string, storeSlug?: string) =>
+    send(tgId, `Продавец не подтвердил получение денег по заказу <b>#${n}</b> и закрыл заявку. Причина: ${escapeHtml(reason)}. Если перевод был выполнен, напишите продавцу в чате и приложите подтверждение.`, { text: 'Открыть заказ', path: '/orders', storeSlug }),
   paymentConfirmed: (tgId: bigint, n: string, storeSlug?: string) =>
     send(tgId, `Продавец подтвердил получение оплаты по заказу <b>#${n}</b>.`, { text: 'Открыть заказ', path: '/orders', storeSlug }),
   deliveryPriceSet: (tgId: bigint, n: string, total: number, storeSlug?: string) =>
@@ -108,6 +110,8 @@ export const notifyBuyer = {
 // ---- продавцу (§8) ----
 
 export const notifySeller = {
+  paymentReviewReminder: (tgId: bigint, n: string, storeSlug?: string) =>
+    send(tgId, `Чек по заказу <b>#${n}</b> всё ещё ждёт проверки. Подтвердите получение денег или укажите, что платёж не поступил.`, { text: 'Проверить заказ', path: '/admin/orders', storeSlug }),
   paymentReceipt: (tgId: bigint, n: string, storeSlug?: string) =>
     send(tgId, `Покупатель приложил чек по заказу <b>#${n}</b>. Проверьте поступление денег.`, { text: 'Открыть заказ', path: '/admin/orders', storeSlug }),
   newChatMessage: (tgId: bigint, storeName: string, storeSlug: string, buyerId: string) =>

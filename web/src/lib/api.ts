@@ -170,6 +170,7 @@ export const adminApi = {
   orderAction: (storeId: string, id: string, action: 'accept' | 'reject' | 'send' | 'complete' | 'payment-confirm') =>
     post(`/api/admin/${storeId}/orders/${id}/${action}`),
   orderRefund: (storeId: string, id: string, reference: string) => post(`/api/admin/${storeId}/orders/${id}/refund`, { reference }),
+  paymentReject: (storeId: string, id: string, reason: string) => post(`/api/admin/${storeId}/orders/${id}/payment-reject`, { reason }),
   manualShipment: (storeId: string, id: string, trackingNumber: string) => post(`/api/admin/${storeId}/orders/${id}/manual-shipment`, { trackingNumber }),
   cdekConnection: (storeId: string) => get<{ connection: { connected: boolean; clientId?: string; mode?: 'test' | 'live'; originCityCode?: number; originPoint?: string; senderName?: string; senderPhone?: string; weight?: number; length?: number; width?: number; height?: number } }>(`/api/admin/${storeId}/delivery/cdek`),
   saveCdekConnection: (storeId: string, body: unknown) => put<{ connected: boolean; mode: 'test' | 'live' }>(`/api/admin/${storeId}/delivery/cdek`, body),
