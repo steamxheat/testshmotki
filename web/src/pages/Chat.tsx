@@ -11,12 +11,13 @@ type ChatProps = {
   title: string;
   fallback: string;
   load: (before?: string) => Promise<ChatPage>;
-  send: (text: string, media?: { mediaUrl: string; mediaType: 'image' | 'video' }) => Promise<unknown>;
+  send: (text: string, media?: { mediaUrl: string; mediaType: 'image' | 'video' }, productId?: string) => Promise<unknown>;
   productId?: string;
+  seller?: boolean;
   emptyHint?: string;
 };
 
-function Conversation({ title, fallback, load, send, productId, emptyHint = 'Напишите здесь — продавец ответит в приложении.' }: ChatProps) {
+function Conversation({ title, fallback, load, send, productId, seller = false, emptyHint = 'Напишите здесь — продавец ответит в приложении.' }: ChatProps) {
   const [items, setItems] = useState<ChatMessage[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [text, setText] = useState('');
@@ -31,6 +32,7 @@ function Conversation({ title, fallback, load, send, productId, emptyHint = 'Н�
   const [participantName, setParticipantName] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const firstLoad = useRef(true);
+  const latestBuyerMessage = seller ? [...items].reverse().find((message) => !message.mine) : null;
 
   const refresh = useCallback(async (forceBottom = false) => {
     const box = scrollRef.current;
@@ -90,7 +92,7 @@ function Conversation({ title, fallback, load, send, productId, emptyHint = 'Н�
     if ((!value && !attachment) || sending || uploading) return;
     setSending(true);
     try {
-      await send(value, attachment ?? undefined);
+      await send(value, attachment ?? undefined, seller ? latestBuyerMessage?.product?.id : undefined);
       setText('');
       setAttachment(null);
       await refresh(true);
@@ -115,6 +117,7 @@ function Conversation({ title, fallback, load, send, productId, emptyHint = 'Н�
     <div className="page chat-page">
       <TopBar title={participantName ?? title} fallback={fallback} />
       {productTitle && <div className="chat-context"><Icon name="catalog" size={18} /><span>Вопрос о товаре: <Link to={`/product/${productId}`}>{productTitle}</Link></span></div>}
+      {seller && latestBuyerMessage?.product && <div className="chat-context"><Icon name="catalog" size={18} /><span>Последний вопрос: <Link to={`/product/${latestBuyerMessage.product.id}`}>{latestBuyerMessage.product.title}</Link>. Ответ будет связан с этой вещью.</span></div>}
       <div className="chat-messages" ref={scrollRef} aria-live="polite">
         {loading && <Loader text="Открываем переписку…" />}
         {!loading && cursor && <button className="btn small outline chat-older" onClick={loadOlder} disabled={olderLoading}>{olderLoading ? 'Загружаем…' : 'Ранние сообщения'}</button>}
@@ -188,9 +191,9 @@ export function AdminChats() {
     {error && <ErrorState message={error} onRetry={reload} />}
     {!loading && !error && items.length === 0 && <Empty icon="chat" title="Сообщений пока нет" hint="Когда покупатель напишет, диалог появится здесь." />}
     <div className="list">
-      {items.map(({ buyer, preview, updatedAt }) => <Link className="card chat-thread" key={buyer.id} to={`/admin/chats/${buyer.id}`}>
+      {items.map(({ buyer, preview, updatedAt, product }) => <Link className="card chat-thread" key={buyer.id} to={`/admin/chats/${buyer.id}`}>
         {buyer.avatarUrl ? <img className="avatar sm" src={assetUrl(buyer.avatarUrl)} alt="" /> : <span className="avatar sm chat-avatar"><Icon name="profile" size={19} /></span>}
-        <span className="grow"><strong>{[buyer.firstName, buyer.lastName].filter(Boolean).join(' ') || (buyer.username ? `@${buyer.username}` : 'Покупатель')}</strong><small>{preview}</small></span>
+        <span className="grow"><strong>{[buyer.firstName, buyer.lastName].filter(Boolean).join(' ') || (buyer.username ? `@${buyer.username}` : 'Покупатель')}</strong>{product && <small className="chat-thread-product">По товару: {product.title}</small>}<small>{preview}</small></span>
         <time>{new Date(updatedAt).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })}</time>
       </Link>)}
     </div>
@@ -201,6 +204,6 @@ export function AdminChatThread() {
   const { store } = useStore();
   const { buyerId } = useParams();
   const load = useCallback((before?: string) => adminApi.chat(store!.id, buyerId!, before), [store?.id, buyerId]);
-  const send = useCallback((text: string, media?: { mediaUrl: string; mediaType: 'image' | 'video' }) => adminApi.sendChat(store!.id, buyerId!, text, media), [store?.id, buyerId]);
-  return <Conversation key={buyerId} title="Переписка" fallback="/admin/chats" load={load} send={send} emptyHint="Напишите покупателю по его заявке." />;
+  const send = useCallback((text: string, media?: { mediaUrl: string; mediaType: 'image' | 'video' }, productId?: string) => adminApi.sendChat(store!.id, buyerId!, text, media, productId), [store?.id, buyerId]);
+  return <Conversation key={buyerId} title="Переписка" fallback="/admin/chats" load={load} send={send} seller emptyHint="Напишите покупателю по его заявке." />;
 }

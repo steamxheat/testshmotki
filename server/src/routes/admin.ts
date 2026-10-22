@@ -430,7 +430,10 @@ async function transition(
   logEvent({ storeId, userId: req.auth!.user.id, type: 'order_status_change', meta: { orderId: order.id, to: rule.to } });
 
   // уведомления покупателю (§8)
-  if (action === 'accept') notifyBuyer.orderConfirmed(order.buyer.telegramId, order.publicNumber, req.store!.slug);
+  if (action === 'accept') {
+    if (order.deliveryMethod === 'cdek' && order.deliveryPriceAmount == null) notifyBuyer.deliveryAwaitingPrice(order.buyer.telegramId, order.publicNumber, req.store!.slug);
+    else notifyBuyer.orderConfirmed(order.buyer.telegramId, order.publicNumber, req.store!.slug);
+  }
   if (action === 'reject') notifyBuyer.orderRejected(order.buyer.telegramId, order.publicNumber, req.store!.slug);
   if (action === 'complete') notifyBuyer.orderCompleted(order.buyer.telegramId, order.publicNumber, req.store!.slug);
 }
@@ -443,6 +446,7 @@ adminRouter.post('/:storeId/orders/:id/payment-confirm', h(async (req, res) => {
   const order = await prisma.order.findFirst({ where: { id: req.params.id, storeId: req.store!.id }, include: { buyer: true } });
   if (!order) throw notFound('Заказ не найден');
   if (order.status !== 'confirmed' || order.paymentConfirmedAt) throw badRequest('Оплату нельзя подтвердить в этом статусе');
+  if (order.deliveryMethod === 'cdek' && order.deliveryPriceAmount == null) throw badRequest('Сначала согласуйте стоимость доставки');
   const changed = await prisma.order.updateMany({ where: { id: order.id, status: 'confirmed', paymentConfirmedAt: null }, data: { paymentConfirmedAt: new Date() } });
   if (!changed.count) throw conflict('Оплату уже подтвердили');
   notifyBuyer.paymentConfirmed(order.buyer.telegramId, order.publicNumber, req.store!.slug);
@@ -497,6 +501,7 @@ adminRouter.delete('/:storeId/delivery/cdek', h(async (req, res) => {
   const fresh = await prisma.store.findUniqueOrThrow({ where: { id: req.store!.id } });
   const settings = { ...(fresh.settings as Record<string, unknown>) };
   delete settings.cdekConnection;
+  settings.cdekMode = 'manual';
   await prisma.store.update({ where: { id: fresh.id }, data: { settings: settings as Prisma.InputJsonValue } });
   res.json({ connected: false });
 }));
@@ -508,6 +513,7 @@ adminRouter.post('/:storeId/orders/:id/cdek/quote', h(async (req, res) => {
     throw badRequest('Для расчёта нужен подтверждённый и оплаченный заказ с выбранным ПВЗ СДЭК');
   }
   if (await prisma.shipment.findUnique({ where: { orderId: order.id } })) throw conflict('Отправление по заказу уже начато');
+  if (order.deliveryTariff === 'Ручное оформление') throw badRequest('Этот заказ оформляется вручную');
   const connection = connectionFromSettings(req.store!.settings);
   if (!connection) throw badRequest('Сначала подключите СДЭК в настройках');
   const quote = await quoteCdek(connection, order.deliveryCityCode, order.deliveryPointCode);
@@ -521,6 +527,7 @@ adminRouter.post('/:storeId/orders/:id/cdek/create', h(async (req, res) => {
   if (order.status !== 'confirmed' || !order.paymentConfirmedAt || order.deliveryMethod !== 'cdek' || !order.deliveryPointCode || !order.deliveryCityCode || !order.buyerPhone) {
     throw badRequest('Нужен подтверждённый оплаченный заказ с ПВЗ и телефоном покупателя');
   }
+  if (order.deliveryTariff === 'Ручное оформление') throw badRequest('Этот заказ оформляется вручную');
   const connection = connectionFromSettings(req.store!.settings);
   if (!connection) throw badRequest('Сначала подключите СДЭК в настройках');
   if (req.body?.mode !== connection.mode || req.body?.confirmed !== true) throw badRequest('Подтвердите среду и оформление накладной');
@@ -559,6 +566,31 @@ adminRouter.post('/:storeId/orders/:id/cdek/check', h(async (req, res) => {
   const shipment = await prisma.shipment.findFirst({ where: { orderId: req.params.id, storeId: req.store!.id, carrier: 'cdek' } });
   if (!shipment) throw notFound('Отправление не найдено');
   res.json({ shipment: await refreshCdekShipment(shipment.id) });
+}));
+
+adminRouter.post('/:storeId/orders/:id/cdek/manual-price', h(async (req, res) => {
+  const { price } = z.object({ price: z.number().finite().nonnegative().max(100000) }).parse(req.body);
+  const order = await prisma.order.findFirst({ where: { id: req.params.id, storeId: req.store!.id }, include: { buyer: true } });
+  if (!order) throw notFound('Заказ не найден');
+  if (order.status !== 'confirmed' || order.deliveryMethod !== 'cdek' || order.deliveryTariff !== 'Ручное оформление' || order.deliveryPriceAmount != null || order.paymentConfirmedAt || order.receiptSubmittedAt) throw badRequest('Стоимость можно установить один раз до оплаты ручного заказа СДЭК');
+  const changed = await prisma.order.updateMany({ where: { id: order.id, status: 'confirmed', deliveryPriceAmount: null, paymentConfirmedAt: null, receiptSubmittedAt: null }, data: { deliveryPriceAmount: rublesToKopecks(price), reservedUntil: new Date(Date.now() + config.reservationHours * 3600_000) } });
+  if (!changed.count) throw conflict('Стоимость уже установлена');
+  notifyBuyer.deliveryPriceSet(order.buyer.telegramId, order.publicNumber, (order.priceAmountSnapshot + rublesToKopecks(price)) / 100, req.store!.slug);
+  res.json({ ok: true });
+}));
+
+adminRouter.post('/:storeId/orders/:id/cdek/manual-tracking', h(async (req, res) => {
+  const { trackingNumber } = z.object({ trackingNumber: z.string().trim().regex(/^[A-Za-z0-9-]{6,40}$/, 'Проверьте трек-номер СДЭК') }).parse(req.body);
+  const order = await prisma.order.findFirst({ where: { id: req.params.id, storeId: req.store!.id }, include: { buyer: true } });
+  if (!order) throw notFound('Заказ не найден');
+  if (order.status !== 'confirmed' || !order.paymentConfirmedAt || order.deliveryMethod !== 'cdek' || order.deliveryTariff !== 'Ручное оформление') throw badRequest('Сначала подтвердите оплату ручного заказа СДЭК');
+  if (await prisma.shipment.findUnique({ where: { orderId: order.id } })) throw conflict('Трек-номер по заказу уже указан');
+  await prisma.shipment.create({ data: { orderId: order.id, storeId: order.storeId, carrier: 'cdek', mode: 'manual', state: 'created', trackingNumber, tariffName: order.deliveryTariff, priceAmount: order.deliveryPriceAmount } }).catch((error) => {
+    if ((error as { code?: string }).code === 'P2002') throw conflict('Трек-номер по заказу уже указан');
+    throw error;
+  });
+  notifyBuyer.shipmentRegistered(order.buyer.telegramId, order.publicNumber, trackingNumber, req.store!.slug);
+  res.json({ ok: true });
 }));
 
 // ---------------- Отзывы (§7.5) ----------------
@@ -646,6 +678,7 @@ const settingsSchema = z.object({
   settings: z
     .object({
       deliveryMethods: z.array(z.enum(['meetup', 'cdek', 'russian_post', 'yandex_delivery', 'dhl', 'discuss'])).min(1, 'Включите хотя бы один способ получения').optional(),
+      cdekMode: z.enum(['manual', 'automatic']).optional(),
       responseSchedule: z.string().max(200).nullish(),
       reservationRules: z.string().max(500).nullish(),
       socialLinks: z.record(z.string()).optional(),
@@ -693,11 +726,12 @@ adminRouter.patch(
       if (taken) throw conflict('Такой адрес уже занят', 'slug_taken');
     }
 
-    const mergedSettings = {
+    const mergedSettings: Record<string, unknown> = {
       ...(store.settings as Record<string, unknown>),
       ...(d.settings ?? {}),
       ...(d.slug && d.slug !== store.slug ? { slugChangedAt: new Date().toISOString() } : {}),
     };
+    if (mergedSettings.cdekMode === 'automatic' && !mergedSettings.cdekConnection) throw badRequest('Для автоматического СДЭК сначала подключите кабинет');
 
     const updated = await prisma.store.update({
       where: { id: store.id },

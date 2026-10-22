@@ -5,6 +5,7 @@ import { h } from '../lib/http.js';
 import { authenticate } from '../middleware/auth.js';
 import { searchLimiter } from '../middleware/rateLimit.js';
 import { resolveStore } from '../middleware/store.js';
+import { presentStoreSettings } from '../lib/present.js';
 
 export const deliveryRouter = Router();
 deliveryRouter.use(authenticate, resolveStore(), searchLimiter);
@@ -19,7 +20,7 @@ deliveryRouter.get('/cdek/points', h(async (req, res) => {
 }));
 deliveryRouter.post('/cdek/quote', h(async (req, res) => {
   const { cityCode, pointCode } = z.object({ cityCode: z.number().int().positive(), pointCode: z.string().regex(/^[A-Za-z0-9-]{2,32}$/) }).parse(req.body);
-  const connection = connectionFromSettings(req.store!.settings);
+  const connection = presentStoreSettings(req.store!).cdekMode === 'automatic' ? connectionFromSettings(req.store!.settings) : null;
   if (!connection) { res.json({ available: false }); return; }
   await getCdekPoint(cityCode, pointCode);
   const quote = await quoteCdek(connection, cityCode, pointCode);

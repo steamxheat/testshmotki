@@ -23,6 +23,7 @@ export function presentStoreSettings(store: Store) {
   const legalEmail = typeof s.legalEmail === 'string' ? s.legalEmail.trim() : '';
   return {
     deliveryMethods: (s.deliveryMethods as string[]) ?? ['meetup', 'cdek', 'russian_post', 'discuss'],
+    cdekMode: s.cdekMode === 'manual' || s.cdekMode === 'automatic' ? s.cdekMode : s.cdekConnection ? 'automatic' : 'manual',
     responseSchedule: (s.responseSchedule as string) ?? null,
     reservationRules: (s.reservationRules as string) ?? null,
     socialLinks: (s.socialLinks as Record<string, string>) ?? {},
@@ -145,7 +146,7 @@ export function presentOrder(
     items: (o.items ?? []).map((i) => ({ productId: i.productId, variantId: i.variantId, title: i.titleSnapshot, size: i.sizeSnapshot, quantity: i.quantity, price: kopecksToRubles(i.priceAmountSnapshot) })),
     receiptSubmittedAt: o.receiptSubmittedAt,
     paymentConfirmedAt: o.paymentConfirmedAt,
-    paymentDetails: o.status === 'confirmed' ? paymentDetails ?? null : null,
+    paymentDetails: o.status === 'confirmed' && (o.deliveryMethod !== 'cdek' || o.deliveryPriceAmount != null) ? paymentDetails ?? null : null,
     comment: o.comment,
     status: o.status,
     reservedUntil: o.reservedUntil,

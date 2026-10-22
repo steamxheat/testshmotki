@@ -40,6 +40,7 @@ export interface Product {
 
 export interface StoreSettings {
   deliveryMethods: DeliveryMethod[];
+  cdekMode: 'manual' | 'automatic';
   responseSchedule: string | null;
   reservationRules: string | null;
   socialLinks: Record<string, string>;
@@ -128,7 +129,7 @@ export interface Order {
   deliveryLat: number | null;
   deliveryLon: number | null;
   deliveryMethod: DeliveryMethod;
-  shipment: { state: string; mode: 'test' | 'live'; requestUuid: string | null; trackingNumber: string | null; originPoint: string | null; tariffName: string | null; price: number | null; error: string | null } | null;
+  shipment: { state: string; mode: 'test' | 'live' | 'manual'; requestUuid: string | null; trackingNumber: string | null; originPoint: string | null; tariffName: string | null; price: number | null; error: string | null } | null;
   items: { productId: string; variantId: string; title: string; size: string; quantity: number; price: number }[];
   receiptSubmittedAt: string | null;
   paymentConfirmedAt: string | null;
@@ -191,4 +192,5 @@ export interface ChatThreadSummary {
   buyer: { id: string; firstName: string | null; lastName: string | null; username: string | null; avatarUrl: string | null };
   updatedAt: string;
   preview: string;
+  product: { id: string; title: string } | null;
 }

@@ -39,6 +39,8 @@ export const notifyBuyer = {
       text: 'К заказу',
       path: '/orders', storeSlug,
     }),
+  deliveryAwaitingPrice: (tgId: bigint, n: string, storeSlug?: string) =>
+    send(tgId, `Продавец принял заявку <b>#${n}</b>. Стоимость доставки СДЭК согласуют отдельно; пока не переводите деньги.`, { text: 'К заказу', path: '/orders', storeSlug }),
   orderRejected: (tgId: bigint, n: string, storeSlug?: string) =>
     send(tgId, `Заявка <b>#${n}</b> отклонена продавцом.`, { text: 'Мои заказы', path: '/orders', storeSlug }),
   reservationExpiringSoon: (tgId: bigint, n: string, storeSlug?: string) =>
@@ -52,6 +54,8 @@ export const notifyBuyer = {
     }),
   paymentConfirmed: (tgId: bigint, n: string, storeSlug?: string) =>
     send(tgId, `Продавец подтвердил получение оплаты по заказу <b>#${n}</b>.`, { text: 'Открыть заказ', path: '/orders', storeSlug }),
+  deliveryPriceSet: (tgId: bigint, n: string, total: number, storeSlug?: string) =>
+    send(tgId, `Продавец согласовал доставку СДЭК по заказу <b>#${n}</b>. Итого с доставкой: <b>${total.toLocaleString('ru-RU')} ₽</b>. Проверьте заказ перед переводом.`, { text: 'К заказу', path: '/orders', storeSlug }),
   shipmentRegistered: (tgId: bigint, n: string, tracking: string, storeSlug?: string) =>
     send(tgId, `Отправление СДЭК по заказу <b>#${n}</b> оформлено. Трек-номер: <b>${escapeHtml(tracking)}</b>.`, { text: 'Открыть заказ', path: '/orders', storeSlug }),
   newChatMessage: (tgId: bigint, storeName: string, storeSlug: string) =>

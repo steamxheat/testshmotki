@@ -47,20 +47,19 @@ export function Orders() {
                   <div style={{ marginTop: 6 }}>
                     <span className={`status ${orderStatusTone[o.status]}`}>{orderStatusLabel[o.status]}</span>
                   </div>
-                  {left && <div className="small muted" style={{ marginTop: 4 }}>{o.status === 'confirmed' ? 'Оплатите или отправьте чек в течение ' : 'Бронь ещё '}{left}</div>}
+                  {left && <div className="small muted" style={{ marginTop: 4 }}>{o.status === 'confirmed' && !(o.deliveryMethod === 'cdek' && o.deliveryPrice == null) ? 'Оплатите или отправьте чек в течение ' : 'Бронь ещё '}{left}</div>}
                   <div className="small muted" style={{ marginTop: 4 }}>{deliveryLabel[o.deliveryMethod]}</div>
                   {o.deliveryPoint && <div className="small muted">{o.deliveryPoint} · {o.deliveryAddress}</div>}
                   {o.deliveryPointCode && <div className="small muted">Код ПВЗ СДЭК: {o.deliveryPointCode}</div>}
-                  {o.deliveryTariff && <div className="small muted">{o.deliveryTariff} · {o.deliveryPrice == null ? 'цена уточняется' : money(o.deliveryPrice)} (ориентир продавца)</div>}
+                  {o.deliveryTariff && <div className="small muted">{o.deliveryTariff} · {o.deliveryPrice == null ? 'цена уточняется' : money(o.deliveryPrice)}{o.deliveryTariff !== 'Ручное оформление' && ' (ориентир продавца)'}</div>}
                   {o.deliveryPrice != null && <div className="small"><b>Итого с доставкой: {money(o.price + o.deliveryPrice)}</b></div>}
-                  {o.shipment?.mode === 'live' && o.shipment.trackingNumber && <div className="small"><b>СДЭК: {o.shipment.trackingNumber}</b><div className="muted">Накладная создана. Передачу посылки в СДЭК подтвердит продавец.</div></div>}
+                  {(o.shipment?.mode === 'live' || o.shipment?.mode === 'manual') && o.shipment.trackingNumber && <div className="small"><b>СДЭК: {o.shipment.trackingNumber}</b><div className="muted">{o.shipment.mode === 'manual' ? 'Трек-номер внесён продавцом после оформления отправления.' : 'Накладная создана. Передачу посылки в СДЭК подтвердит продавец.'}</div></div>}
                 </div>
               </div>
               {(o.status === 'confirmed' || o.status === 'completed') && <div className="order-payment">
-                <strong>{o.paymentConfirmedAt ? 'Оплата подтверждена' : 'Оплата переводом'}</strong>
+                <strong>{o.paymentConfirmedAt ? 'Оплата подтверждена' : o.deliveryMethod === 'cdek' && o.deliveryPrice == null ? 'Ожидаем стоимость доставки' : 'Оплата переводом'}</strong>
                 {o.status === 'confirmed' && !o.paymentConfirmedAt && <>
-                  {o.paymentDetails ? <p className="payment-details">{o.paymentDetails}</p> : <p className="small muted">Продавец ещё не указал реквизиты. Уточните их в чате до перевода.</p>}
-                  <label className="btn small outline receipt-upload">{receiptBusy === o.id ? 'Загружаем…' : o.receiptSubmittedAt ? 'Заменить чек' : 'Прикрепить чек (фото или PDF)'}<input type="file" accept="image/*,application/pdf" hidden disabled={receiptBusy === o.id} onChange={(e) => { uploadReceipt(o, e.target.files?.[0]); e.target.value = ''; }} /></label>
+                  {o.deliveryMethod === 'cdek' && o.deliveryPrice == null ? <p className="small muted">Продавец сообщит итоговую стоимость доставки. До этого ничего не переводите.</p> : <>{o.paymentDetails ? <p className="payment-details">{o.paymentDetails}</p> : <p className="small muted">Продавец ещё не указал реквизиты. Уточните их в чате до перевода.</p>}<label className="btn small outline receipt-upload">{receiptBusy === o.id ? 'Загружаем…' : o.receiptSubmittedAt ? 'Заменить чек' : 'Прикрепить чек (фото или PDF)'}<input type="file" accept="image/*,application/pdf" hidden disabled={receiptBusy === o.id} onChange={(e) => { uploadReceipt(o, e.target.files?.[0]); e.target.value = ''; }} /></label></>}
                   {o.receiptSubmittedAt && <span className="small muted">Чек отправлен, ожидаем проверки продавца.</span>}
                 </>}
                 {o.receiptSubmittedAt && <button className="text-action" onClick={() => downloadReceipt(o.id).catch(() => toast('Не удалось открыть чек'))}>Скачать чек</button>}

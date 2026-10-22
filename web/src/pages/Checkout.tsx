@@ -115,7 +115,7 @@ export function Checkout() {
   }, [delivery, cdekCityCode, retry]);
 
   useEffect(() => {
-    if (delivery !== 'cdek' || !cdekCityCode || !cdekPointCode) { setCdekQuote(null); setCdekQuoteReady(false); setCdekQuoteError(''); return; }
+    if (delivery !== 'cdek' || store?.settings.cdekMode !== 'automatic' || !cdekCityCode || !cdekPointCode) { setCdekQuote(null); setCdekQuoteReady(false); setCdekQuoteError(''); return; }
     let active = true;
     setCdekQuote(null); setCdekQuoteReady(false); setCdekQuoteLoading(true); setCdekQuoteError('');
     api.cdekQuote(cdekCityCode, cdekPointCode).then(({ available, quote }) => {
@@ -123,7 +123,7 @@ export function Checkout() {
     }).catch((e) => { if (active) setCdekQuoteError(e instanceof ApiError ? e.message : 'Не удалось рассчитать доставку СДЭК'); })
       .finally(() => { if (active) setCdekQuoteLoading(false); });
     return () => { active = false; };
-  }, [delivery, cdekCityCode, cdekPointCode, retry]);
+  }, [delivery, store?.settings.cdekMode, cdekCityCode, cdekPointCode, retry]);
 
   function selectPoint(point: DeliveryOption) {
     const first = options.find((item) => item.point === point.point && item.address === point.address);
@@ -141,8 +141,8 @@ export function Checkout() {
     if (step === 2) {
       if (shipping && !city.trim()) { toast('Укажите город доставки'); return; }
       if (shipping && !optionId && !cdekPointCode && !deliveryAddress.trim()) { toast('Выберите пункт или укажите адрес'); return; }
-      if (delivery === 'cdek' && cdekPointCode && (cdekQuoteLoading || (!cdekQuoteReady && !cdekQuoteError))) { toast('Дождитесь расчёта доставки'); return; }
-      if (delivery === 'cdek' && cdekPointCode && cdekQuoteError) { toast('Не удалось рассчитать СДЭК. Повторите запрос или укажите ПВЗ вручную'); return; }
+      if (delivery === 'cdek' && store?.settings.cdekMode === 'automatic' && cdekPointCode && (cdekQuoteLoading || (!cdekQuoteReady && !cdekQuoteError))) { toast('Дождитесь расчёта доставки'); return; }
+      if (delivery === 'cdek' && store?.settings.cdekMode === 'automatic' && cdekPointCode && cdekQuoteError) { toast('Не удалось рассчитать СДЭК. Повторите запрос или укажите ПВЗ вручную'); return; }
       setStep(3);
       return;
     }
@@ -209,7 +209,7 @@ export function Checkout() {
         </div>}
         {shipping && <div className="checkout-manual"><button type="button" className="text-action" onClick={() => { setOptionId(''); setCdekPointCode(''); }}>Указать другой адрес или ПВЗ</button>{!optionId && !cdekPointCode && <div className="field"><label htmlFor="checkout-address">Адрес или желаемый ПВЗ *</label><input id="checkout-address" value={deliveryAddress} onChange={(e) => setDeliveryAddress(e.target.value)} required maxLength={300} autoComplete="street-address" placeholder={delivery === 'cdek' ? 'Адрес или код ПВЗ СДЭК' : 'Город, улица, дом или название пункта'} /></div>}</div>}
         {delivery === 'meetup' && !optionId && <p className="small muted">Место и время встречи согласуете с продавцом после подтверждения.</p>}
-        {shipping && <p className="small muted">{delivery === 'cdek' ? 'Если магазин подключил СДЭК, цена рассчитана по типовой упаковке и сохраняется в заявке. Продавец создаст накладную после подтверждения оплаты; сдача и оплата перевозчику идут по его договору.' : 'Точки, сроки и цены добавлены продавцом вручную. Это не онлайн-расчёт и не бронь у перевозчика.'}</p>}
+        {shipping && <p className="small muted">{delivery === 'cdek' ? store?.settings.cdekMode === 'manual' ? 'ПВЗ выбран из справочника СДЭК. Продавец отдельно согласует стоимость доставки до оплаты и оформит отправление вручную; затем пришлёт трек-номер.' : 'Цена рассчитана по типовой упаковке и сохраняется в заявке. Продавец создаст накладную после подтверждения оплаты; сдача и оплата перевозчику идут по его договору.' : 'Точки, сроки и цены добавлены продавцом вручную. Это не онлайн-расчёт и не бронь у перевозчика.'}</p>}
       </section>}
       {step === 3 && <section className="checkout-panel"><h2>Проверьте заявку</h2><div className="checkout-review"><span>Покупатель</span><strong>{name} · {phone}</strong><span>Получение</span><strong>{deliveryLabel[delivery]}{cdekPoint ? ` · ${cdekPoint.name}, ${cdekPoint.address}` : option ? ` · ${option.point}` : deliveryAddress ? ` · ${deliveryAddress}` : ''}</strong>{(option || cdekQuote) && <><span>Тариф</span><strong>{option?.tariff ?? cdekQuote?.tariffName}{option?.eta ? ` · ${option.eta}` : cdekQuote?.periodMin && cdekQuote?.periodMax ? ` · ${cdekQuote.periodMin}–${cdekQuote.periodMax} дней` : ''}</strong></>}</div>
         <div className="field"><label htmlFor="checkout-comment">Комментарий продавцу</label><textarea id="checkout-comment" value={comment} onChange={(e) => setComment(e.target.value)} maxLength={1000} placeholder="Пожелания или вопросы" /></div>

@@ -67,6 +67,7 @@ export function Settings() {
         coverUrl: store!.coverUrl,
         settings: {
           deliveryMethods: store!.settings.deliveryMethods,
+          cdekMode: store!.settings.cdekMode,
           responseSchedule: store!.settings.responseSchedule,
           reservationRules: store!.settings.reservationRules,
           accentColor: store!.settings.accentColor,
@@ -170,12 +171,21 @@ export function Settings() {
             <button key={d} className={`chip ${store.settings.deliveryMethods.includes(d) ? 'active' : ''}`} onClick={() => toggleDelivery(d)}>{deliveryLabel[d]}</button>
           ))}
         </div>
-        <p className="small muted">Включение способа показывает его покупателю. Для СДЭК отдельно подключите кабинет ниже: тогда покупатель увидит тариф, а продавец сможет создать накладную после оплаты. Ярлык и код сдачи пока оформляются через кабинет СДЭК.</p>
+        <p className="small muted">Включение способа показывает его покупателю. ПВЗ СДЭК покупатель выбирает сам; режим оформления задаётся ниже.</p>
       </div>
+
+      {store.settings.deliveryMethods.includes('cdek') && <div className="field">
+        <label htmlFor="cdek-mode">Оформление СДЭК</label>
+        <div className="select-wrap"><select id="cdek-mode" value={store.settings.cdekMode} onChange={(e) => updSettings({ cdekMode: e.target.value as 'manual' | 'automatic' })}>
+          <option value="manual">Вручную — без API</option>
+          <option value="automatic">Через подключённый кабинет СДЭК</option>
+        </select></div>
+        <p className="small muted">Вручную: покупатель выбирает ПВЗ, вы подтверждаете заявку, называете стоимость доставки, оформляете отправление в СДЭК и вводите трек-номер. Автоматический режим доступен после подключения ключей.</p>
+      </div>}
 
       <div className="section delivery-guides">
         <h2>Подключение автоматической доставки</h2>
-        <p className="small muted">СДЭК можно подключить для расчёта тарифа и оформления отправления из оплаченного заказа. Почта России и Яндекс пока работают вручную. Сохраните изменения настроек перед переходом.</p>
+        <p className="small muted">Подключение кабинета СДЭК необязательно: ручной режим работает без ключей. Для автоматического расчёта тарифа и накладной подключите кабинет. Почта России и Яндекс пока работают вручную. Сохраните изменения настроек перед переходом.</p>
         <div className="delivery-guide-links">
           {DELIVERY_GUIDES.map((method) => (
             <Link key={method} to={{ pathname: `/admin/settings/delivery/${method}`, search: location.search }} className="delivery-guide-link">

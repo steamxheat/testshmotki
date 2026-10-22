@@ -140,10 +140,10 @@ adminChatRouter.get('/:storeId/chats', h(async (req, res) => {
     where: { storeId: req.store!.id }, orderBy: { updatedAt: 'desc' }, take: 100,
     include: {
       buyer: { select: { id: true, firstName: true, lastName: true, username: true, avatarUrl: true } },
-      messages: { orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: 1, select: { text: true, mediaType: true } },
+      messages: { orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: 1, select: { text: true, mediaType: true, product: { select: { id: true, title: true } } } },
     },
   });
-  res.json({ items: threads.map((t) => ({ buyer: t.buyer, updatedAt: t.updatedAt, preview: t.messages[0]?.text || (t.messages[0]?.mediaType === 'video' ? 'Видео' : t.messages[0]?.mediaType === 'image' ? 'Фото' : '') })) });
+  res.json({ items: threads.map((t) => ({ buyer: t.buyer, updatedAt: t.updatedAt, preview: t.messages[0]?.text || (t.messages[0]?.mediaType === 'video' ? 'Видео' : t.messages[0]?.mediaType === 'image' ? 'Фото' : ''), product: t.messages[0]?.product ?? null })) });
 }));
 
 adminChatRouter.get('/:storeId/chats/:buyerId', h(async (req, res) => {
@@ -160,7 +160,7 @@ adminChatRouter.get('/:storeId/chats/:buyerId', h(async (req, res) => {
 }));
 
 adminChatRouter.post('/:storeId/chats/:buyerId', orderLimiter, h(async (req, res) => {
-  const { text, mediaUrl, mediaType } = messageSchema.parse(req.body);
+  const { text, mediaUrl, mediaType, productId } = messageSchema.parse(req.body);
   if (mediaUrl) {
     if (!path.basename(mediaUrl).startsWith(`${req.auth!.user.id}_`)) throw badRequest('Это вложение другого пользователя');
     await fs.stat(path.join(chatMediaDir, path.basename(mediaUrl))).catch(() => { throw badRequest('Вложение не найдено'); });
@@ -177,8 +177,12 @@ adminChatRouter.post('/:storeId/chats/:buyerId', orderLimiter, h(async (req, res
       create: { storeId: req.store!.id, buyerId: req.params.buyerId }, update: {}, include: { buyer: true },
     });
   }
+  if (productId) {
+    const product = await prisma.product.findFirst({ where: { id: productId, storeId: req.store!.id }, select: { id: true } });
+    if (!product) throw notFound('Товар не найден в этом магазине');
+  }
   const message = await prisma.$transaction(async (tx) => {
-    const created = await tx.chatMessage.create({ data: { threadId: thread.id, senderId: req.auth!.user.id, text, mediaUrl: mediaUrl ?? null, mediaType: mediaType ?? null } });
+    const created = await tx.chatMessage.create({ data: { threadId: thread.id, senderId: req.auth!.user.id, productId: productId ?? null, text, mediaUrl: mediaUrl ?? null, mediaType: mediaType ?? null } });
     await tx.chatThread.update({ where: { id: thread.id }, data: { updatedAt: new Date() } });
     return created;
   });

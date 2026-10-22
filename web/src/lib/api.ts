@@ -174,9 +174,11 @@ export const adminApi = {
   cdekQuote: (storeId: string, id: string) => post<{ quote: { originPoint: string; tariffCode: number; tariffName: string; price: number; periodMin?: number; periodMax?: number }; mode: 'test' | 'live' }>(`/api/admin/${storeId}/orders/${id}/cdek/quote`),
   cdekCreate: (storeId: string, id: string, mode: 'test' | 'live', tariffCode: number, priceAmount: number) => post(`/api/admin/${storeId}/orders/${id}/cdek/create`, { mode, tariffCode, priceAmount, confirmed: true }),
   cdekCheck: (storeId: string, id: string) => post(`/api/admin/${storeId}/orders/${id}/cdek/check`),
+  cdekManualPrice: (storeId: string, id: string, price: number) => post(`/api/admin/${storeId}/orders/${id}/cdek/manual-price`, { price }),
+  cdekManualTracking: (storeId: string, id: string, trackingNumber: string) => post(`/api/admin/${storeId}/orders/${id}/cdek/manual-tracking`, { trackingNumber }),
   chats: (storeId: string) => get<{ items: ChatThreadSummary[] }>(`/api/admin/${storeId}/chats`),
   chat: (storeId: string, buyerId: string, before?: string) => get<ChatPage>(`/api/admin/${storeId}/chats/${buyerId}`, { before }),
-  sendChat: (storeId: string, buyerId: string, text: string, media?: { mediaUrl: string; mediaType: 'image' | 'video' }) => post<{ id: string }>(`/api/admin/${storeId}/chats/${buyerId}`, { text, ...media }),
+  sendChat: (storeId: string, buyerId: string, text: string, media?: { mediaUrl: string; mediaType: 'image' | 'video' }, productId?: string) => post<{ id: string }>(`/api/admin/${storeId}/chats/${buyerId}`, { text, productId, ...media }),
 
   reviews: (storeId: string) => get<{ items: Review[] }>(`/api/admin/${storeId}/reviews`),
   replyReview: (storeId: string, id: string, reply: string) => post(`/api/admin/${storeId}/reviews/${id}/reply`, { reply }),

@@ -77,8 +77,9 @@ ordersRouter.post(
     if (data.deliveryPointCode && data.deliveryMethod !== 'cdek') throw badRequest('Код ПВЗ разрешён только для СДЭК');
     if (data.deliveryPointCode && (data.deliveryOptionId || data.deliveryAddress)) throw badRequest('Выберите один ПВЗ СДЭК');
     const cdekPoint = data.deliveryPointCode ? await getCdekPoint(data.deliveryCityCode!, data.deliveryPointCode) : null;
-    const connection = cdekPoint ? connectionFromSettings(req.store!.settings) : null;
+    const connection = cdekPoint && legal.cdekMode === 'automatic' ? connectionFromSettings(req.store!.settings) : null;
     const cdekQuote = connection && cdekPoint ? await quoteCdek(connection, cdekPoint.cityCode, cdekPoint.code) : null;
+    if (data.deliveryMethod === 'cdek' && data.expectedDeliveryPrice != null && !cdekQuote) throw conflict('Режим доставки СДЭК изменился. Обновите выбор ПВЗ и сумму', 'delivery_price_changed');
     if (cdekQuote && (data.expectedDeliveryPrice == null || data.expectedTariffCode == null)) throw badRequest('Тариф СДЭК изменился. Вернитесь к выбору ПВЗ и обновите расчёт');
     if (cdekQuote && (Math.round(cdekQuote.price * 100) !== Math.round(data.expectedDeliveryPrice! * 100) || cdekQuote.tariffCode !== data.expectedTariffCode)) throw conflict('Цена доставки СДЭК изменилась. Обновите расчёт перед заявкой', 'delivery_price_changed');
     if (cdekPoint && !data.city) throw badRequest('Укажите город доставки');
@@ -122,8 +123,8 @@ ordersRouter.post(
           deliveryPoint: cdekPoint?.name ?? option?.point ?? null,
           deliveryPointCode: cdekPoint?.code ?? null,
           deliveryCityCode: cdekPoint?.cityCode ?? null,
-          deliveryTariff: cdekQuote?.tariffName ?? option?.tariff ?? null,
-          deliveryPriceAmount: cdekQuote ? Math.round(cdekQuote.price * 100) : option ? Math.round(option.price * 100) : null,
+          deliveryTariff: data.deliveryMethod === 'cdek' && !cdekQuote ? 'Ручное оформление' : cdekQuote?.tariffName ?? option?.tariff ?? null,
+          deliveryPriceAmount: data.deliveryMethod === 'cdek' && !cdekQuote ? null : cdekQuote ? Math.round(cdekQuote.price * 100) : option ? Math.round(option.price * 100) : null,
           deliveryLat: cdekPoint?.lat ?? option?.lat ?? null,
           deliveryLon: cdekPoint?.lon ?? option?.lon ?? null,
           deliveryMethod: data.deliveryMethod,
@@ -186,6 +187,7 @@ ordersRouter.post('/:id/receipt', receiptLimiter, receiptUpload.single('file'), 
   const order = await prisma.order.findFirst({ where: { id: req.params.id, buyerId: req.auth!.user.id, storeId: req.store!.id } });
   if (!order) throw notFound('Заказ не найден');
   if (order.status !== 'confirmed' || order.paymentConfirmedAt) throw badRequest('Сейчас загрузить чек нельзя');
+  if (order.deliveryMethod === 'cdek' && order.deliveryPriceAmount == null) throw badRequest('Сначала дождитесь согласования стоимости доставки');
   const file = req.file;
   if (!file) throw badRequest('Выберите фото или PDF');
   await fs.mkdir(receiptDir, { recursive: true, mode: 0o700 });

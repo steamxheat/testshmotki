@@ -14,7 +14,7 @@ store = {
     "city": "Москва", "contactUsername": "pullinup_store", "logoUrl": None, "coverUrl": None,
     "status": "active", "rating": 0, "reviewsCount": 0,
     "settings": {
-        "deliveryMethods": ["meetup", "cdek", "yandex_delivery"], "responseSchedule": "", "reservationRules": "",
+        "deliveryMethods": ["meetup", "cdek", "yandex_delivery"], "cdekMode": "automatic", "responseSchedule": "", "reservationRules": "",
         "socialLinks": {}, "accentColor": "#486876", "backgroundUrl": PHOTO, "showSold": True,
         "privacyUrl": "https://example.org/privacy", "termsUrl": "https://example.org/terms",
         "legalName": None, "legalInn": None, "legalAddress": None, "legalEmail": None, "legalReady": False,
@@ -103,9 +103,9 @@ def route_api(route):
     elif path == "/chat":
         result = {"items": chat_messages, "nextCursor": None}
     elif path == "/admin/s1/chats":
-        result = {"items": [{"buyer": {"id": "u1", "firstName": "Покупатель", "lastName": "", "username": "buyer", "avatarUrl": None}, "updatedAt": "2026-10-18T10:00:00Z", "preview": chat_messages[-1]["text"]}] if chat_messages else []}
+        result = {"items": [{"buyer": {"id": "u1", "firstName": "Покупатель", "lastName": "", "username": "buyer", "avatarUrl": None}, "updatedAt": "2026-10-18T10:00:00Z", "preview": chat_messages[-1]["text"], "product": chat_messages[-1]["product"]}] if chat_messages else []}
     elif path == "/admin/s1/chats/u1" and request.method == "POST":
-        chat_messages.append({"id": f"m{len(chat_messages)+1}", "text": body["text"], "mediaUrl": body.get("mediaUrl"), "mediaType": body.get("mediaType"), "createdAt": "2026-10-18T10:01:00Z", "mine": False, "product": None})
+        chat_messages.append({"id": f"m{len(chat_messages)+1}", "text": body["text"], "mediaUrl": body.get("mediaUrl"), "mediaType": body.get("mediaType"), "createdAt": "2026-10-18T10:01:00Z", "mine": False, "product": {"id": "p1", "title": product["title"]} if body.get("productId") else None})
         result = {"id": chat_messages[-1]["id"]}
     elif path == "/admin/s1/chats/u1":
         result = {"items": [{**item, "mine": not item["mine"]} for item in chat_messages], "nextCursor": None}
@@ -125,6 +125,9 @@ def route_api(route):
         result = {"categories": [{"id": "c1", "name": "Футболки", "parentId": None, "status": "active", "productCount": 1}]}
     elif path.endswith("/orders"):
         result = {"items": [order]}
+    elif path.endswith("/cdek/manual-price") and request.method == "POST":
+        order["deliveryPrice"] = body["price"]
+        result = {"ok": True}
     elif path.endswith("/reviews"):
         result = {"items": []}
     elif path.endswith("/settings") and request.method == "PATCH":
@@ -305,6 +308,33 @@ with sync_playwright() as playwright:
     page.get_by_role("checkbox", name="Ознакомился с").check()
     page.get_by_role("button", name="Отправить заявку").click()
     assert order_requests[-1]["deliveryPointCode"] == "MSK1" and order_requests[-1]["deliveryCityCode"] == 44 and order_requests[-1]["buyerEmail"] == "buyer@example.org" and order_requests[-1]["expectedDeliveryPrice"] == 420 and order_requests[-1]["expectedTariffCode"] == 136
+    store["settings"]["cdekMode"] = "manual"
+    page.goto(BASE + "checkout/p1")
+    page.get_by_role("textbox", name="ФИО").fill("Тестовый покупатель")
+    page.get_by_role("textbox", name="Телефон").fill("+79991234567")
+    page.get_by_role("textbox", name="Почта").fill("buyer@example.org")
+    page.get_by_role("button", name="Продолжить").click()
+    page.get_by_role("button", name="СДЭК", exact=True).click()
+    page.get_by_label("Город").fill("Моск")
+    page.get_by_role("button", name="Москва Московская область").click()
+    page.locator(".checkout-point").first.click()
+    page.get_by_text("Стоимость уточнит продавец").wait_for()
+    page.get_by_role("button", name="Продолжить").click()
+    page.get_by_role("checkbox", name="Даю отдельное согласие").check()
+    page.get_by_role("checkbox", name="Ознакомился с").check()
+    page.get_by_role("button", name="Отправить заявку").click()
+    assert order_requests[-1]["deliveryPointCode"] == "MSK1" and not order_requests[-1].get("expectedDeliveryPrice"), "manual CDEK sent an automatic tariff"
+    store["settings"]["cdekMode"] = "automatic"
+    saved_order = deepcopy(order)
+    order.update({"deliveryMethod": "cdek", "deliveryTariff": "Ручное оформление", "deliveryPrice": None, "status": "confirmed"})
+    page.goto(BASE + "admin/orders")
+    page.get_by_label("Стоимость доставки, ₽").fill("450")
+    assert not page.evaluate("document.documentElement.scrollWidth > window.innerWidth"), "manual delivery controls overflow mobile"
+    page.once("dialog", lambda dialog: dialog.accept())
+    page.get_by_role("button", name="Сообщить покупателю").click()
+    page.get_by_text("С покупателя всего: 2 950 ₽").wait_for()
+    order.clear()
+    order.update(saved_order)
     page.route("**/shmotki/api/delivery/cdek/status*", lambda route: route.fulfill(status=200, content_type="application/json", body='{"connected":false}'))
     page.goto(BASE + "checkout/p1")
     page.get_by_role("textbox", name="ФИО").fill("Тестовый покупатель")
