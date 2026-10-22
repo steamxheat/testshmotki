@@ -17,7 +17,7 @@ store = {
         "deliveryMethods": ["meetup", "cdek", "yandex_delivery"], "responseSchedule": "", "reservationRules": "",
         "socialLinks": {}, "accentColor": "#486876", "backgroundUrl": PHOTO, "showSold": True,
         "privacyUrl": "https://example.org/privacy", "termsUrl": "https://example.org/terms",
-        "legalName": "Тестовый продавец", "legalInn": "123456789012", "legalAddress": "Москва, Тверская, 1", "legalEmail": "seller@example.org", "legalReady": True,
+        "legalName": None, "legalInn": None, "legalAddress": None, "legalEmail": None, "legalReady": False,
         "deliveryOptions": [{"id": "point1", "method": "cdek", "city": "Москва", "point": "СДЭК Тверская", "address": "Тверская, 1", "tariff": "Стандарт", "price": 450, "eta": "3–5 дней", "lat": 55.758, "lon": 37.613}, {"id": "point1_fast", "method": "cdek", "city": "Москва", "point": "СДЭК Тверская", "address": "Тверская, 1", "tariff": "Экспресс", "price": 650, "eta": "1–2 дня", "lat": 55.758, "lon": 37.613}, {"id": "meetup1", "method": "meetup", "city": "Москва", "point": "Встреча у метро", "address": "Тверская, 2", "tariff": "Встреча", "price": 0, "lat": 55.758, "lon": 37.613}],
         "blocks": {"newArrivals": True, "discounted": True, "recent": True}, "slugChangedAt": None,
     },
@@ -50,17 +50,20 @@ seen_store_slugs = []
 order_actions = []
 chat_messages = []
 order_requests = []
+legal_notice_decision = None
 
 
 def route_api(route):
-    global store
+    global store, legal_notice_decision
     request = route.request
     parsed = urlparse(request.url)
     path = parsed.path.removeprefix("/shmotki/api")
     body = json.loads(request.post_data or "{}") if request.method in ("POST", "PATCH", "PUT") and "application/json" in request.headers.get("content-type", "") else {}
     result = {}
     if path == "/store/legal-notice":
-        result = {"version": "test", "decision": "dismissed"}
+        if request.method == "POST":
+            legal_notice_decision = body["decision"]
+        result = {"version": "test", "decision": legal_notice_decision}
     elif path == "/store":
         seen_store_slugs.append(request.headers.get("x-store-slug"))
         result = {"store": store}
@@ -146,6 +149,15 @@ def route_api(route):
 
 with sync_playwright() as playwright:
     browser = playwright.chromium.launch(headless=True)
+    first_context = browser.new_context(viewport={"width": 375, "height": 812})
+    first_page = first_context.new_page()
+    first_page.route("https://telegram.org/js/**", lambda route: route.abort())
+    first_page.route("**/shmotki/api/**", route_api)
+    first_page.goto(BASE)
+    first_page.get_by_role("button", name="Согласен, продолжить").click()
+    first_page.get_by_role("link", name="Каталог").wait_for()
+    assert legal_notice_decision == "accepted", "first-visit consent was not saved without seller details"
+    first_context.close()
     for width, height in [(320, 720), (375, 812), (667, 375)]:
         context = browser.new_context(viewport={"width": width, "height": height}, reduced_motion="reduce")
         page = context.new_page()

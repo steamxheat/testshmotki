@@ -116,12 +116,12 @@ try {
   const firstLines = [{ productId: firstProduct.id, variantId: firstProduct.variants.find((v) => v.size === 'M').id, quantity: 2 }, { productId: secondProduct.id, variantId: secondProduct.variants[0].id, quantity: 1 }];
   const legalSettings = (await prisma.store.findUniqueOrThrow({ where: { id: store.id } })).settings;
   await prisma.store.update({ where: { id: store.id }, data: { settings: { ...legalSettings, legalName: null } } });
-  const missingLegal = await submit(firstLines);
-  assert.equal(missingLegal.status, 400, 'Без условий покупки заявку нельзя создать');
-  assert.equal(missingLegal.data.error.code, 'store_legal_missing');
-  await prisma.store.update({ where: { id: store.id }, data: { settings: legalSettings } });
+  const notice = await call('/api/store/legal-notice', buyerTelegramId, marker, 'POST', { decision: 'accepted' });
+  assert.equal(notice.status, 200, 'Согласие доступно без реквизитов продавца');
+  assert.equal(notice.data.decision, 'accepted');
   const first = await submit(firstLines);
-  assert.equal(first.status, 201, JSON.stringify(first.data));
+  assert.equal(first.status, 201, 'Заявка с согласием доступна без реквизитов продавца');
+  await prisma.store.update({ where: { id: store.id }, data: { settings: legalSettings } });
   assert((await prisma.order.findUniqueOrThrow({ where: { id: first.data.order.id } })).termsAcceptedAt, 'Принятие условий записано в заказ');
   assert.equal(first.data.order.status, 'pending');
   assert.equal(first.data.order.items.length, 2);

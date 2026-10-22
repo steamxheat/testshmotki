@@ -18,9 +18,6 @@ storeRouter.get('/legal-notice', authenticate, resolveStore(), h(async (req, res
 storeRouter.post('/legal-notice', authenticate, resolveStore(), h(async (req, res) => {
   const { decision } = z.object({ decision: z.enum(['accepted', 'dismissed']) }).parse(req.body);
   const version = legalVersion(req.store!);
-  if (decision === 'accepted' && !presentStoreSettings(req.store!).legalReady) {
-    return res.status(409).json({ error: { code: 'store_legal_missing', message: 'Продавец ещё не заполнил сведения для документов' } });
-  }
   const notice = await prisma.legalNotice.upsert({
     where: { storeId_userId_version: { storeId: req.store!.id, userId: req.auth!.user.id, version } },
     create: { storeId: req.store!.id, userId: req.auth!.user.id, version, decision },

@@ -176,9 +176,6 @@ export function Checkout() {
   if (loadError) return <div className="page"><TopBar title="Оформление" fallback="/cart" /><ErrorState message={loadError} onRetry={() => setRetry((n) => n + 1)} /></div>;
   if (done) return <div className="page"><Empty icon="check" title={`Заявка №${done.number} отправлена`} hint="Вещи забронированы. Продавец получит заявку и подтвердит её вручную." action={<div className="checkout-success-actions"><button className="btn" onClick={() => nav('/orders')}>Мои заказы</button><button className="btn secondary" onClick={() => nav('/chat')}><Icon name="chat" size={18} />Чат с продавцом</button></div>} /></div>;
   if (!lines.length) return <div className="page"><TopBar title="Оформление" fallback="/cart" /><Empty icon="cart" title="Корзина пуста" action={<Link className="btn small" to="/catalog">В каталог</Link>} /></div>;
-  if (!store?.settings.legalReady) {
-    return <div className="page"><TopBar title="Оформление" fallback="/cart" /><Empty icon="lock" title="Оформление пока недоступно" hint="Продавец ещё не указал данные для документов магазина. Напишите ему в чате или попробуйте позже." action={<Link className="btn" to="/chat">Написать продавцу</Link>} /></div>;
-  }
   if (invalid) return <div className="page"><TopBar title="Оформление" fallback="/cart" /><Empty icon="unavailable" title="Наличие изменилось" hint="Вернитесь в корзину и проверьте размеры и количество." action={<Link className="btn small" to="/cart">Проверить корзину</Link>} /></div>;
 
   return <div className="page checkout-page">

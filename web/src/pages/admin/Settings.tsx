@@ -208,13 +208,13 @@ export function Settings() {
 
       <div className="section">
         <h2>Документы магазина</h2>
-        <p className="small muted">Политика и условия покупки уже подготовлены внутри приложения. Укажите реальные данные продавца: они появятся в документах и откроют оформление заявок. Перед запуском проверьте тексты с юристом под вашу форму торговли.</p>
+        <p className="small muted">Политика и условия покупки уже подготовлены внутри приложения. Укажите реальные данные продавца: они появятся в документах. Перед запуском продаж проверьте тексты с юристом под вашу форму торговли.</p>
         <div className="field"><label htmlFor="legal-name">Продавец: ИП, организация или самозанятый</label><input id="legal-name" value={store.settings.legalName ?? ''} onChange={(e) => updSettings({ legalName: e.target.value || null })} maxLength={200} placeholder="ИП Иванов Иван Иванович" /></div>
         <div className="field"><label htmlFor="legal-inn">ИНН продавца</label><input id="legal-inn" value={store.settings.legalInn ?? ''} onChange={(e) => updSettings({ legalInn: e.target.value || null })} inputMode="numeric" pattern="[0-9]{10}|[0-9]{12}" maxLength={12} placeholder="10 или 12 цифр" /></div>
         <div className="field"><label htmlFor="legal-address">Адрес для обращений и возвратов</label><input id="legal-address" value={store.settings.legalAddress ?? ''} onChange={(e) => updSettings({ legalAddress: e.target.value || null })} maxLength={500} placeholder="Индекс, город, улица, дом" /></div>
         <div className="field"><label htmlFor="legal-email">Email для вопросов о данных и претензий</label><input id="legal-email" type="email" value={store.settings.legalEmail ?? ''} onChange={(e) => updSettings({ legalEmail: e.target.value || null })} maxLength={200} placeholder="shop@example.ru" /></div>
         <div className="row"><Link className="btn small outline" to="/legal/privacy">Политика</Link><Link className="btn small outline" to="/legal/terms">Условия покупки</Link></div>
-        <p className="small muted">Статус: {store.settings.legalReady ? 'реквизиты заполнены' : 'реквизиты не заполнены; заявки закрыты'}. После сохранения проверьте опубликованные страницы. Старые внешние ссылки сохраняются в настройках, но покупателю теперь показываются внутренние документы.</p>
+        <p className="small muted">Статус: {store.settings.legalReady ? 'реквизиты заполнены' : 'реквизиты не заполнены'}. После сохранения проверьте опубликованные страницы. Старые внешние ссылки сохраняются в настройках, но покупателю теперь показываются внутренние документы.</p>
       </div>
 
       <div className="field"><label>График ответа</label><input aria-label="График ответа" value={store.settings.responseSchedule ?? ''} onChange={(e) => updSettings({ responseSchedule: e.target.value })} /></div>

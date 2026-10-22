@@ -27,9 +27,8 @@ export function LegalNotice({ onDone }: { onDone: (decision: 'accepted' | 'dismi
       <h1>Добро пожаловать в {store?.name}</h1>
       <p>Для работы магазина используются данные вашего профиля Telegram и технические сведения о посещении. При оформлении заявки продавец получит указанные вами имя, телефон, email, адрес доставки, сообщения и подтверждение перевода. Это нужно для заказа и связи с вами.</p>
       <p>Прочитайте <Link to="/legal/privacy">политику обработки данных</Link> и <Link to="/legal/terms">условия покупки и возврата</Link>. Согласие на обработку данных для заявки будет запрошено отдельно перед её отправкой. Подписка на рекламные уведомления не включается этим действием.</p>
-      {!store?.settings.legalReady && <p className="legal-intro-warning">Продавец ещё не опубликовал свои реквизиты. Пока можно смотреть каталог, но оформлять заявки нельзя.</p>}
       {error && <p className="legal-intro-error" role="alert">{error}</p>}
-      {store?.settings.legalReady && <button className="btn" type="button" disabled={busy} onClick={() => void decide('accepted')}>{busy ? 'Сохраняем…' : 'Согласен, продолжить'}</button>}
+      <button className="btn" type="button" disabled={busy} onClick={() => void decide('accepted')}>{busy ? 'Сохраняем…' : 'Согласен, продолжить'}</button>
       <button className="btn outline" type="button" disabled={busy} onClick={() => void decide('dismissed')}>Продолжить без согласия</button>
       <p className="small muted">Без согласия можно просматривать каталог. Перед отправкой заявки вы сможете принять решение отдельно.</p>
     </div>

@@ -67,9 +67,6 @@ ordersRouter.post(
     const data = createSchema.parse(req.body);
     const user = req.auth!.user;
     const legal = presentStoreSettings(req.store!);
-    if (!legal.legalReady) {
-      throw badRequest('Продавец ещё не заполнил сведения для документов магазина', 'store_legal_missing');
-    }
     if (!legal.deliveryMethods.includes(data.deliveryMethod)) {
       throw badRequest('Этот способ получения недоступен в магазине');
     }

@@ -14,7 +14,6 @@ export function Legal() {
 
   return <div className="page legal-page">
     <TopBar title={document === 'privacy' ? 'Конфиденциальность' : 'Условия покупки'} fallback="/profile" />
-    {!s.legalReady && <div className="legal-warning" role="status">Проект документа: продавец ещё не заполнил реквизиты. Пока это не сделано, заявки на покупку закрыты.</div>}
     {document === 'privacy' ? <article>
       <h1>Политика обработки персональных данных</h1>
       <p className="muted small">Редакция от 22 октября 2026 года. Действует для магазина «{store!.name}» в Telegram Mini App.</p>
