@@ -26,6 +26,7 @@ export function Settings() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [newMember, setNewMember] = useState('');
   const [paymentDetails, setPaymentDetails] = useState('');
   const [mapOptionId, setMapOptionId] = useState<string | null>(null);
@@ -56,6 +57,7 @@ export function Settings() {
   }
 
   async function save() {
+    setSaveError(null);
     setSaving(true);
     try {
       const previousSlug = ctxStore!.slug;
@@ -74,8 +76,6 @@ export function Settings() {
           reservationRules: store!.settings.reservationRules,
           accentColor: store!.settings.accentColor,
           backgroundUrl: store!.settings.backgroundUrl,
-          privacyUrl: store!.settings.privacyUrl,
-          termsUrl: store!.settings.termsUrl,
           legalName: store!.settings.legalName,
           legalInn: store!.settings.legalInn,
           legalAddress: store!.settings.legalAddress,
@@ -93,7 +93,13 @@ export function Settings() {
       toast('Сохранено');
       reloadStore();
     } catch (e) {
-      toast(e instanceof ApiError ? e.message : 'Ошибка сохранения');
+      const issue = e instanceof ApiError ? e.issues?.[0] : undefined;
+      const field = String(issue?.path[issue.path.length - 1] ?? '');
+      const labels: Record<string, string> = { channelUsername: 'Telegram-канал', legalInn: 'ИНН', legalEmail: 'Email продавца', point: 'Название места', address: 'Адрес пункта', city: 'Город пункта', tariff: 'Тариф', slug: 'Адрес магазина' };
+      const place = typeof issue?.path[2] === 'number' && issue.path[1] === 'deliveryOptions' ? `Вариант доставки №${issue.path[2] + 1}, ` : '';
+      const message = issue ? `${place}${labels[field] ?? field}: ${issue.message}` : e instanceof ApiError ? e.message : 'Ошибка сохранения';
+      setSaveError(message);
+      toast(message);
     } finally {
       setSaving(false);
     }
@@ -286,6 +292,7 @@ export function Settings() {
       </div>
 
       <div className="bar">
+        {saveError && <p className="small" role="alert">Не сохранено: {saveError}</p>}
         <button className="btn" onClick={save} disabled={saving}>{saving ? 'Сохраняем…' : 'Сохранить настройки'}</button>
       </div>
     </div>

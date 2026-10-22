@@ -110,8 +110,8 @@ export function Profile() {
           {(subscription.newArrivals || subscription.priceDrops) && <>
             <p className="small muted">Выберите интересующие категории, бренды и размеры. Если ничего не выбрать, уведомления будут обо всех товарах. Совпадения достаточно по одному признаку.</p>
             <Preference title="Категории" items={subscriptionFilters.categories.map((item) => ({ value: item.id, label: item.name }))} selected={subscription.categoryIds} onToggle={(value) => togglePreference('categoryIds', value)} />
-            <Preference title="Бренды" items={subscriptionFilters.brands.map((value) => ({ value, label: value }))} selected={subscription.brands} onToggle={(value) => togglePreference('brands', value)} />
-            <Preference title="Размеры" items={subscriptionFilters.sizes.map((value) => ({ value, label: value }))} selected={subscription.sizes} onToggle={(value) => togglePreference('sizes', value)} />
+            <Preference title="Бренды" items={[...new Set([...subscriptionFilters.brands, ...subscription.brands])].map((value) => ({ value, label: value }))} selected={subscription.brands} onToggle={(value) => togglePreference('brands', value)} />
+            <Preference title="Размеры" items={[...new Set([...subscriptionFilters.sizes, ...subscription.sizes])].map((value) => ({ value, label: value }))} selected={subscription.sizes} onToggle={(value) => togglePreference('sizes', value)} />
           </>}
           <button className="btn small" type="button" disabled={subscriptionSaving} onClick={saveSubscription}>{subscriptionSaving ? 'Сохраняем…' : 'Сохранить подписки'}</button>
         </>}

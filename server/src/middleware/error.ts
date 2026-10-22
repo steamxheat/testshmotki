@@ -12,7 +12,7 @@ export function errorHandler(err: unknown, _req: Request, res: Response, _next: 
   }
   if (err instanceof ZodError) {
     return res.status(400).json({
-      error: { code: 'validation', message: 'Некорректные данные', details: err.flatten() },
+      error: { code: 'validation', message: 'Некорректные данные', details: err.flatten(), issues: err.issues.map(({ path, message }) => ({ path, message })) },
     });
   }
   if (err instanceof AppError) {

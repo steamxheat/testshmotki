@@ -152,6 +152,7 @@ export function Checkout() {
     e.preventDefault();
     if (step === 1) { setStep(2); return; }
     if (step === 2) {
+      if (shipping && (!phone.trim() || !email.trim())) { toast('Для доставки укажите телефон и почту'); setStep(1); return; }
       if (shipping && !city.trim()) { toast('Укажите город доставки'); return; }
       if (shipping && !optionId && !cdekPointCode && !deliveryAddress.trim()) { toast('Выберите пункт или укажите адрес'); return; }
       if (delivery === 'cdek' && store?.settings.cdekMode === 'automatic' && cdekPointCode && (cdekQuoteLoading || (!cdekQuoteReady && !cdekQuoteError))) { toast('Дождитесь расчёта доставки'); return; }
@@ -163,7 +164,12 @@ export function Checkout() {
   }
 
   async function submit() {
-    if (!consent || !termsAccepted || submitting || invalid || !lines.length || !name.trim() || !phone.trim() || !email.trim()) return;
+    if (!consent || !termsAccepted || submitting || invalid || !lines.length) return;
+    if (!name.trim() || (shipping && (!phone.trim() || !email.trim()))) {
+      toast(shipping ? 'Для доставки укажите имя, телефон и почту' : 'Укажите имя покупателя');
+      setStep(1);
+      return;
+    }
     setSubmitting(true);
     try {
       const r = await api.createOrder({
@@ -197,8 +203,8 @@ export function Checkout() {
     <form onSubmit={next}>
       {step === 1 && <section className="checkout-panel"><h2>Контактная информация</h2><p className="small muted">Продавец свяжется с вами по заявке. Оплата появится только после подтверждения.</p>
         <div className="field"><label htmlFor="checkout-name">ФИО *</label><input id="checkout-name" value={name} onChange={(e) => setName(e.target.value)} required maxLength={100} autoComplete="name" /></div>
-        <div className="field"><label htmlFor="checkout-phone">Телефон *</label><input id="checkout-phone" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} required maxLength={32} autoComplete="tel" placeholder="+7…" /></div>
-        <div className="field"><label htmlFor="checkout-email">Почта *</label><input id="checkout-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required maxLength={200} autoComplete="email" /></div>
+        <div className="field"><label htmlFor="checkout-phone">Телефон (обязателен для доставки)</label><input id="checkout-phone" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} maxLength={32} autoComplete="tel" placeholder="+7…" /></div>
+        <div className="field"><label htmlFor="checkout-email">Почта (обязательна для доставки)</label><input id="checkout-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} maxLength={200} autoComplete="email" /></div>
       </section>}
       {step === 2 && <section className="checkout-panel"><h2>Способ получения</h2><p className="small muted">Выберите доступный вариант для этого магазина.</p>
         <div className="checkout-methods" role="group" aria-label="Способ получения">{methods.map((method) => <button type="button" key={method} className={`checkout-method ${delivery === method ? 'active' : ''}`} aria-pressed={delivery === method} onClick={() => { setDelivery(method); setOptionId(''); setCdekPointCode(''); }}><Icon name={method === 'meetup' ? 'location' : method === 'discuss' ? 'chat' : 'package'} size={19} />{deliveryLabel[method]}</button>)}</div>

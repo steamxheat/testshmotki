@@ -6,6 +6,7 @@ import { Icon } from '../../components/Icon';
 import { adminApi, api, ApiError } from '../../lib/api';
 import { assetUrl } from '../../lib/asset';
 import { conditionLabel } from '../../lib/format';
+import { parsePrice } from '../../lib/price';
 import type { Category, Condition, ProductStatus } from '../../types';
 
 const CONDITIONS: Condition[] = ['new_with_tag', 'new_no_tag', 'excellent', 'good', 'has_issues'];
@@ -96,8 +97,8 @@ export function ProductEditor() {
     return {
       title: form.title.trim(),
       categoryId: form.categoryId || null,
-      price: Number(form.price) || 0,
-      oldPrice: form.oldPrice ? Number(form.oldPrice) : null,
+      price: parsePrice(form.price),
+      oldPrice: form.oldPrice.trim() ? parsePrice(form.oldPrice) : null,
       condition: form.condition,
       brand: form.brand.trim() || null,
       size: form.size.trim() || null,
@@ -117,6 +118,11 @@ export function ProductEditor() {
   }
 
   async function save(publish: boolean) {
+    if (saving || uploading) return;
+    if (!Number.isFinite(parsePrice(form.price)) || (form.oldPrice.trim() && !Number.isFinite(parsePrice(form.oldPrice)))) {
+      toast('Проверьте цену: укажите число, например 1500,50');
+      return;
+    }
     setSaving(true);
     try {
       if (isNew) await adminApi.createProduct(store!.id, body(publish));
@@ -212,8 +218,8 @@ export function ProductEditor() {
       <div className="field"><label>Видео товара (до 20 МБ)</label>{videoUrl && <video className="product-video-preview" src={assetUrl(videoUrl)} controls preload="metadata" />}{videoUrl && <button type="button" className="btn small secondary" onClick={() => setVideoUrl(null)}>Убрать видео</button>}<button type="button" className="btn small outline" disabled={uploading} onClick={() => videoRef.current?.click()}>{videoUrl ? 'Заменить видео' : 'Добавить видео'}</button><input ref={videoRef} type="file" accept="video/mp4,video/webm,video/quicktime" hidden onChange={(e) => { onVideo(e.target.files?.[0]); e.target.value = ''; }} /></div>
 
       <div className="bar">
-        {(isNew || status === 'draft') && <button className="btn outline" onClick={() => save(false)} disabled={saving}>{isNew ? 'Черновик' : 'Сохранить черновик'}</button>}
-        <button className="btn" onClick={() => save(isNew || status === 'draft')} disabled={saving}>{isNew || status === 'draft' ? 'Опубликовать' : 'Сохранить изменения'}</button>
+        {(isNew || status === 'draft') && <button className="btn outline" onClick={() => save(false)} disabled={saving || uploading}>{isNew ? 'Черновик' : 'Сохранить черновик'}</button>}
+        <button className="btn" onClick={() => save(isNew || status === 'draft')} disabled={saving || uploading}>{uploading ? 'Загружаем файлы…' : isNew || status === 'draft' ? 'Опубликовать' : 'Сохранить изменения'}</button>
       </div>
     </div>
   );

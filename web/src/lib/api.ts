@@ -19,10 +19,12 @@ const BASE = (import.meta.env.VITE_API_URL || new URL(import.meta.env.BASE_URL, 
 export class ApiError extends Error {
   code: string;
   status: number;
-  constructor(status: number, code: string, message: string) {
+  issues?: { path: (string | number)[]; message: string }[];
+  constructor(status: number, code: string, message: string, issues?: { path: (string | number)[]; message: string }[]) {
     super(message);
     this.status = status;
     this.code = code;
+    this.issues = issues;
   }
 }
 
@@ -53,7 +55,7 @@ async function request<T>(path: string, opts: RequestInit & { query?: Record<str
   const data = text ? JSON.parse(text) : {};
   if (!res.ok) {
     const err = data?.error ?? {};
-    throw new ApiError(res.status, err.code ?? 'error', err.message ?? 'Ошибка запроса');
+    throw new ApiError(res.status, err.code ?? 'error', err.message ?? 'Ошибка запроса', err.issues);
   }
   return data as T;
 }
