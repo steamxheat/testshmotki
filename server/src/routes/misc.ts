@@ -160,7 +160,8 @@ miscRouter.post(
   h(async (req, res) => {
     const files = (req.files as Express.Multer.File[]) ?? [];
     if (!files.length || (req.query.purpose === 'review' && files.length > 3)) throw badRequest('Для отзыва выберите от 1 до 3 фото');
-    const processed = await processUploads(files);
+    const prefix = req.query.purpose === 'review' ? `${req.auth!.user.id}_${req.query.orderId}_` : '';
+    const processed = await processUploads(files, prefix);
     // urls — полноразмерные (совместимость), thumbs — миниатюры для списков
     res.json({ urls: processed.map((p) => p.url), thumbs: processed.map((p) => p.thumbUrl) });
   }),

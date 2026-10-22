@@ -5,7 +5,7 @@
 Прод-сборка состоит из трёх контейнеров (см. [`docker-compose.prod.yml`](../docker-compose.prod.yml)):
 
 - **db** — PostgreSQL 16 (том `pgdata`);
-- **server** — Node API + Telegram-бот + cron брони (том `uploads` для изображений);
+- **server** — Node API + Telegram-бот + cron брони (тома `uploads` для изображений и `runtime` для чеков и медиа чата);
 - **web** — nginx со статикой Mini App; проксирует `/api` и `/uploads` на server.
 
 Клиент и API живут на одном домене, поэтому CORS и смешанные origin не нужны.
@@ -24,8 +24,10 @@ cp .env.prod.example .env.prod
 #   PUBLIC_URL      — публичный HTTPS-адрес (https://shop.example.com)
 #   BOT_TOKEN       — токен бота
 #   BOT_USERNAME    — username бота без @
-#   SUPERADMIN_IDS  — ваш Telegram ID (узнать: @userinfobot)
+#   STORE_OWNER_TELEGRAM_ID — Telegram ID владельца (узнать: @userinfobot)
+#   STORE_SLUG, STORE_NAME — адрес и название магазина
 #   POSTGRES_PASSWORD — задайте надёжный пароль
+#   CARRIER_ENCRYPTION_KEY — отдельный постоянный ключ, openssl rand -hex 32
 #   SEED_ON_START=1 — если нужен демо-магазин при первом запуске
 ```
 

@@ -8,7 +8,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-shmotki}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-shmotki}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set a strong POSTGRES_PASSWORD in .env.prod}
       POSTGRES_DB: ${POSTGRES_DB:-shmotki}
     volumes:
       - pgdata:/var/lib/postgresql/data
@@ -24,19 +24,24 @@ services:
     environment:
       NODE_ENV: production
       PORT: 4000
-      DATABASE_URL: postgresql://${POSTGRES_USER:-shmotki}:${POSTGRES_PASSWORD:-shmotki}@db:5432/${POSTGRES_DB:-shmotki}?schema=public
+      DATABASE_URL: postgresql://${POSTGRES_USER:-shmotki}:${POSTGRES_PASSWORD:?Set a strong POSTGRES_PASSWORD in .env.prod}@db:5432/${POSTGRES_DB:-shmotki}?schema=public
       # Публичный адрес сайта (для абсолютных URL картинок). Напр. https://shop.example.com
       PUBLIC_API_URL: ${PUBLIC_URL}
       WEBAPP_URL: ${PUBLIC_URL}
       WEB_ORIGIN: ${PUBLIC_URL}
       BOT_TOKEN: ${BOT_TOKEN}
+      CARRIER_ENCRYPTION_KEY: ${CARRIER_ENCRYPTION_KEY:?Set CARRIER_ENCRYPTION_KEY in .env.prod}
       BOT_USERNAME: ${BOT_USERNAME}
       BOT_POLLING: ${BOT_POLLING:-1}
-      SUPERADMIN_IDS: ${SUPERADMIN_IDS}
+      STORE_OWNER_TELEGRAM_ID: ${STORE_OWNER_TELEGRAM_ID}
+      STORE_SLUG: ${STORE_SLUG}
+      STORE_NAME: ${STORE_NAME}
+      STORE_CONTACT_USERNAME: ${STORE_CONTACT_USERNAME:-}
       RESERVATION_HOURS: ${RESERVATION_HOURS:-24}
       SEED_ON_START: ${SEED_ON_START:-0}
     volumes:
       - uploads:/app/uploads
+      - runtime:/.runtime
     depends_on:
       db:
         condition: service_healthy
@@ -56,3 +61,4 @@ services:
 volumes:
   pgdata:
   uploads:
+  runtime:

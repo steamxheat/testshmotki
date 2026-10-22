@@ -23,7 +23,7 @@ export const adminRouter = Router();
 adminRouter.use('/:storeId', authenticate, requireStoreMember);
 
 const CONDITIONS = ['new_with_tag', 'new_no_tag', 'excellent', 'good', 'has_issues'] as const;
-const imageUrl = z.union([z.string().url(), z.string().regex(/^\/uploads\/[\w-]+\.(?:jpe?g|png|webp)$/)]);
+const imageUrl = z.string().regex(/^\/uploads\/[\w-]+\.(?:jpe?g|png|webp)$/, 'Сначала загрузите фото в магазин');
 
 // ---------------- Обзор (§7.1) ----------------
 
@@ -847,15 +847,15 @@ const settingsSchema = z.object({
   description: z.string().trim().max(2000).nullish(),
   city: z.string().trim().max(100).nullish(),
   contactUsername: z.string().trim().max(64).nullish(),
-  logoUrl: z.union([z.string().url(), z.string().regex(/^\/uploads\/[\w-]+\.(?:jpe?g|png|webp)$/)]).nullish(),
-  coverUrl: z.union([z.string().url(), z.string().regex(/^\/uploads\/[\w-]+\.(?:jpe?g|png|webp)$/)]).nullish(),
+  logoUrl: imageUrl.nullish(),
+  coverUrl: imageUrl.nullish(),
   settings: z
     .object({
       deliveryMethods: z.array(z.enum(['meetup', 'cdek', 'russian_post', 'yandex_delivery', 'dhl', 'discuss'])).min(1, 'Включите хотя бы один способ получения').optional(),
       cdekMode: z.enum(['manual', 'automatic']).optional(),
       responseSchedule: z.string().max(200).nullish(),
       reservationRules: z.string().max(500).nullish(),
-      socialLinks: z.record(z.string()).optional(),
+      socialLinks: z.record(z.string().url().regex(/^https:\/\//, 'Ссылка должна начинаться с https://').max(500)).optional(),
       accentColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
       backgroundUrl: z.string().regex(/^\/uploads\/[\w-]+\.webp$/).nullish(),
       privacyUrl: z.string().url().regex(/^https:\/\//).max(500).nullish(),

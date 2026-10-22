@@ -180,6 +180,9 @@ try {
   const reviewUpload = await reviewUploadResponse.json();
   assert.equal(reviewUploadResponse.status, 200, JSON.stringify(reviewUpload));
   for (const url of [...reviewUpload.urls, ...reviewUpload.thumbs]) uploadedFiles.push(path.resolve(process.cwd(), 'uploads', path.basename(url)));
+  assert.equal((await call('/api/reviews', buyerTelegramId, marker, 'POST', { orderId: first.data.order.id, rating: 5, photos: ['https://example.org/photo.webp'] })).status, 400, 'Внешнее фото нельзя прикрепить к отзыву');
+  assert.equal((await call('/api/reviews', otherBuyer.telegramId, otherBuyer.firstName, 'POST', { orderId: first.data.order.id, rating: 5, photos: reviewUpload.urls })).status, 403, 'Чужой покупатель не может использовать фото заказа');
+  assert.equal((await call('/api/reviews', buyerTelegramId, marker, 'POST', { orderId: first.data.order.id, rating: 5, photos: ['/uploads/other_order_00000000-0000-0000-0000-000000000000.webp'] })).status, 400, 'Фото должно принадлежать текущему заказу');
   assert.equal((await prisma.productVariant.findUniqueOrThrow({ where: { id: firstLines[0].variantId } })).soldQuantity, 2);
   assert.equal((await prisma.product.findUniqueOrThrow({ where: { id: secondProduct.id } })).status, 'sold');
   const lastSize = firstProduct.variants.find((v) => v.size === 'L');
@@ -192,8 +195,9 @@ try {
   const raceWinner = races.find((r) => r.status === 201).data.order;
   assert.equal((await call(`/api/admin/${store.id}/orders/${raceWinner.id}/reject`, ownerId, ownerName, 'POST')).status, 200);
   assert.equal((await prisma.productVariant.findUniqueOrThrow({ where: { id: lastSize.id } })).reservedQuantity, 0, 'Отказ возвращает остаток');
-  const review = await call('/api/reviews', buyerTelegramId, marker, 'POST', { orderId: first.data.order.id, rating: 5, text: 'Встреча прошла хорошо' });
+  const review = await call('/api/reviews', buyerTelegramId, marker, 'POST', { orderId: first.data.order.id, rating: 5, text: 'Встреча прошла хорошо', photos: reviewUpload.urls });
   assert.equal(review.status, 201, JSON.stringify(review.data));
+  assert.deepEqual(review.data.review.photos, reviewUpload.urls);
   const visibleReviews = await call('/api/reviews', buyerTelegramId, marker);
   assert(visibleReviews.data.items.some((item) => item.id === review.data.review.id));
 

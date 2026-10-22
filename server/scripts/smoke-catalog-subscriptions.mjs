@@ -3,6 +3,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { PrismaClient } from '@prisma/client';
+import sharp from 'sharp';
 
 const prisma = new PrismaClient();
 const base = process.env.SMOKE_BASE_URL ?? 'http://127.0.0.1:4050';
@@ -11,6 +12,7 @@ const ids = [BigInt(9_000_000_000_000 + crypto.randomInt(1_000_000_000)), BigInt
 let store;
 const users = [];
 let videoFile;
+let productImage;
 
 async function call(route, telegramId, method = 'GET', body) {
   const url = new URL(route, base);
@@ -27,10 +29,18 @@ try {
   store = await prisma.store.create({ data: { slug: marker, name: marker, settings: { currency: 'USD' }, members: { create: { userId: users[0].id, role: 'owner' } }, categories: { create: { name: 'Тест' } } }, include: { categories: true } });
   const categoryId = store.categories[0].id;
   const owner = ids[0], matchingBuyer = ids[1], otherBuyer = ids[2];
+  const imageForm = new FormData();
+  imageForm.append('files', new Blob([await sharp({ create: { width: 2, height: 2, channels: 3, background: '#ffffff' } }).png().toBuffer()], { type: 'image/png' }), 'product.png');
+  const imageUpload = await fetch(`${base}/api/uploads?store=${store.slug}&purpose=store`, { method: 'POST', headers: { 'X-Dev-User': Buffer.from(JSON.stringify({ id: String(owner), first_name: marker })).toString('base64') }, body: imageForm });
+  const uploadedImage = await imageUpload.json();
+  assert.equal(imageUpload.status, 200, JSON.stringify(uploadedImage));
+  productImage = uploadedImage.urls[0];
   assert.equal((await call('/api/subscriptions', matchingBuyer, 'PUT', { newArrivals: true, priceDrops: true, categoryIds: [], brands: ['Acme'], sizes: [] })).status, 200);
   assert.equal((await call('/api/subscriptions', otherBuyer, 'PUT', { newArrivals: true, priceDrops: true, categoryIds: [], brands: ['Other'], sizes: [] })).status, 200);
   assert.equal((await call('/api/subscriptions', matchingBuyer, 'PUT', { newArrivals: true, priceDrops: true, categoryIds: ['wrong-store'], brands: [], sizes: [] })).status, 400);
-  const productBody = { title: `${marker} jacket`, categoryId, price: 100, condition: 'good', brand: 'Acme', gender: 'unisex', material: 'Хлопок', measurements: 'Длина 68 см', defects: 'Затяжка', defectImages: ['https://example.org/defect.png'], videoUrl: null, variants: [{ size: 'M', stock: 2 }], images: ['https://example.org/item.png'], publish: true };
+  const productBody = { title: `${marker} jacket`, categoryId, price: 100, condition: 'good', brand: 'Acme', gender: 'unisex', material: 'Хлопок', measurements: 'Длина 68 см', defects: 'Затяжка', defectImages: [productImage], videoUrl: null, variants: [{ size: 'M', stock: 2 }], images: [productImage], publish: true };
+  assert.equal((await call(`/api/admin/${store.id}/products`, owner, 'POST', { ...productBody, images: ['https://example.org/item.png'] })).status, 400, 'Внешние фото товара запрещены');
+  assert.equal((await call(`/api/admin/${store.id}/settings`, owner, 'PATCH', { settings: { socialLinks: { vk: 'javascript:alert(1)' } } })).status, 400, 'Небезопасная ссылка соцсети запрещена');
   const created = await call(`/api/admin/${store.id}/products`, owner, 'POST', productBody);
   assert.equal(created.status, 201, JSON.stringify(created.data));
   const product = created.data.product;
@@ -67,6 +77,7 @@ try {
   console.log('OK: product fields/video, subscriptions and alerts, bulk price/status, popular sort, currency lock, overview');
 } finally {
   if (videoFile) await fs.unlink(videoFile).catch(() => undefined);
+  if (productImage) await Promise.all([productImage, productImage.replace('.webp', '_thumb.webp')].map((url) => fs.unlink(path.resolve(process.cwd(), 'uploads', path.basename(url))).catch(() => undefined)));
   await prisma.botNotification.deleteMany({ where: { telegramId: { in: ids } } });
   if (store) await prisma.store.delete({ where: { id: store.id } });
   for (const user of users) await prisma.user.delete({ where: { id: user.id } });

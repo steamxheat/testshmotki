@@ -1,9 +1,12 @@
+import { promises as fs } from 'node:fs';
+import path from 'node:path';
 import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../db.js';
 import { badRequest, conflict, forbidden, h, notFound } from '../lib/http.js';
 import { presentReview } from '../lib/present.js';
 import { getStoreRating, logEvent } from '../lib/stats.js';
+import { UPLOAD_DIR } from '../lib/upload.js';
 import { authenticate } from '../middleware/auth.js';
 import { resolveStore } from '../middleware/store.js';
 import { notifySeller } from '../telegram/notify.js';
@@ -33,7 +36,7 @@ const createSchema = z.object({
   orderId: z.string(),
   rating: z.coerce.number().int().min(1).max(5),
   text: z.string().trim().max(1000).optional(),
-  photos: z.array(z.union([z.string().url(), z.string().regex(/^\/uploads\/[\w-]+\.(?:jpe?g|png|webp)$/)])).max(3).optional(),
+  photos: z.array(z.string().regex(/^\/uploads\/[\w-]+\.webp$/)).max(3).optional(),
 });
 
 // POST /api/reviews — отзыв по завершённому заказу, один раз (§6.9, §9.5)
@@ -49,6 +52,15 @@ reviewsRouter.post(
     if (order.buyerId !== req.auth!.user.id) throw forbidden('Отзыв доступен только участнику сделки');
     if (order.status !== 'completed') throw badRequest('Отзыв можно оставить только по завершённому заказу');
     if (order.review) throw conflict('Отзыв по этому заказу уже оставлен', 'already_reviewed');
+
+    const prefix = `${req.auth!.user.id}_${order.id}_`;
+    for (const photo of data.photos ?? []) {
+      const filename = photo.slice('/uploads/'.length);
+      const owned = filename.startsWith(prefix) && /^[0-9a-f]{8}-[0-9a-f-]{27,36}\.webp$/i.test(filename.slice(prefix.length));
+      if (!owned || !(await fs.stat(path.join(UPLOAD_DIR, filename)).catch(() => null))?.isFile()) {
+        throw badRequest('Фото отзыва должно быть загружено вами для этого заказа');
+      }
+    }
 
     const review = await prisma.review.create({
       data: {

@@ -10,13 +10,14 @@ try {
   process.chdir(temp);
   const { removeUnusedUploads, UPLOAD_DIR } = await import('../dist/lib/upload.js');
   const old = crypto.randomUUID();
+  const oldReview = `buyer_order_${crypto.randomUUID()}`;
   const recent = crypto.randomUUID();
-  for (const filename of [`${old}.webp`, `${old}_thumb.webp`, `${recent}.webp`]) {
+  for (const filename of [`${old}.webp`, `${old}_thumb.webp`, `${oldReview}.webp`, `${oldReview}_thumb.webp`, `${recent}.webp`]) {
     await fs.writeFile(path.join(UPLOAD_DIR, filename), 'test');
   }
   const weekAgo = new Date(Date.now() - 8 * 864e5);
-  for (const filename of [`${old}.webp`, `${old}_thumb.webp`]) await fs.utimes(path.join(UPLOAD_DIR, filename), weekAgo, weekAgo);
-  assert.equal(await removeUnusedUploads(), 2);
+  for (const filename of [`${old}.webp`, `${old}_thumb.webp`, `${oldReview}.webp`, `${oldReview}_thumb.webp`]) await fs.utimes(path.join(UPLOAD_DIR, filename), weekAgo, weekAgo);
+  assert.equal(await removeUnusedUploads(), 4);
   assert.deepEqual(await fs.readdir(UPLOAD_DIR), [`${recent}.webp`]);
   console.log('OK: старые неиспользуемые фото удалены, свежие сохранены');
 } finally {

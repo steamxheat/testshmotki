@@ -1,10 +1,9 @@
 import crypto from 'node:crypto';
-import { config } from '../config.js';
 import { AppError } from './http.js';
 
 function key() {
-  const source = process.env.CARRIER_ENCRYPTION_KEY || config.botToken;
-  if (!source || (!config.isDev && source.length < 32)) throw new AppError(503, 'carrier_key_missing', 'Шифрование ключей доставки не настроено на сервере');
+  const source = process.env.CARRIER_ENCRYPTION_KEY;
+  if (!source || source.length < 32) throw new AppError(503, 'carrier_key_missing', 'Шифрование ключей доставки не настроено на сервере');
   return Buffer.from(crypto.hkdfSync('sha256', source, 'shmotki-carrier-secrets', 'v1', 32));
 }
 

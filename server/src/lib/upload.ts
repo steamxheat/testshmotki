@@ -42,12 +42,12 @@ export interface ProcessedImage {
  * удаление метаданных (EXIF). sharp бросает ошибку на не-изображении — это и есть
  * проверка содержимого файла (§Безопасность). Возвращает URL полноразмерной и миниатюры.
  */
-export async function processUploads(files: Express.Multer.File[]): Promise<ProcessedImage[]> {
+export async function processUploads(files: Express.Multer.File[], prefix = ''): Promise<ProcessedImage[]> {
   const out: ProcessedImage[] = [];
   const written: string[] = [];
   try {
    for (const file of files) {
-    const id = crypto.randomUUID();
+    const id = `${prefix}${crypto.randomUUID()}`;
     let meta;
     try {
       meta = await sharp(file.buffer, { failOn: 'error', limitInputPixels: 40_000_000 }).rotate().metadata();
@@ -84,7 +84,7 @@ export async function processUploads(files: Express.Multer.File[]): Promise<Proc
   return out;
 }
 
-// Удаляем только наши UUID-файлы старше недели: открытая форма создания товара
+// Удаляем только наши UUID-файлы (включая фото отзывов с префиксом заказа) старше недели: открытая форма создания товара
 // или отзыва может не быть сохранена сразу после загрузки.
 export async function removeUnusedUploads(): Promise<number> {
   const [products, images, stores, reviews, messages] = await Promise.all([
@@ -106,7 +106,7 @@ export async function removeUnusedUploads(): Promise<number> {
   messages.forEach((message) => add(message.mediaUrl));
   let removed = 0;
   for (const file of await fsp.readdir(UPLOAD_DIR)) {
-    const match = /^([0-9a-f]{8}-[0-9a-f-]{27,36})(?:_thumb)?\.(webp|mp4|webm|mov)$/i.exec(file);
+    const match = /^((?:[a-z0-9]+_[a-z0-9]+_)?[0-9a-f]{8}-[0-9a-f-]{27,36})(?:_thumb)?\.(webp|mp4|webm|mov)$/i.exec(file);
     if (!match || references.has(file) || references.has(`${match[1]}.webp`) || references.has(`${match[1]}_thumb.webp`)) continue;
     const filename = path.join(UPLOAD_DIR, file);
     const stat = await fsp.stat(filename).catch(() => null);
