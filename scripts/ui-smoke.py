@@ -17,6 +17,7 @@ store = {
         "deliveryMethods": ["meetup", "cdek", "yandex_delivery"], "responseSchedule": "", "reservationRules": "",
         "socialLinks": {}, "accentColor": "#486876", "backgroundUrl": PHOTO, "showSold": True,
         "privacyUrl": "https://example.org/privacy", "termsUrl": "https://example.org/terms",
+        "legalName": "Тестовый продавец", "legalInn": "123456789012", "legalAddress": "Москва, Тверская, 1", "legalEmail": "seller@example.org", "legalReady": True,
         "deliveryOptions": [{"id": "point1", "method": "cdek", "city": "Москва", "point": "СДЭК Тверская", "address": "Тверская, 1", "tariff": "Стандарт", "price": 450, "eta": "3–5 дней", "lat": 55.758, "lon": 37.613}, {"id": "point1_fast", "method": "cdek", "city": "Москва", "point": "СДЭК Тверская", "address": "Тверская, 1", "tariff": "Экспресс", "price": 650, "eta": "1–2 дня", "lat": 55.758, "lon": 37.613}, {"id": "meetup1", "method": "meetup", "city": "Москва", "point": "Встреча у метро", "address": "Тверская, 2", "tariff": "Встреча", "price": 0, "lat": 55.758, "lon": 37.613}],
         "blocks": {"newArrivals": True, "discounted": True, "recent": True}, "slugChangedAt": None,
     },
@@ -58,7 +59,9 @@ def route_api(route):
     path = parsed.path.removeprefix("/shmotki/api")
     body = json.loads(request.post_data or "{}") if request.method in ("POST", "PATCH", "PUT") and "application/json" in request.headers.get("content-type", "") else {}
     result = {}
-    if path == "/store":
+    if path == "/store/legal-notice":
+        result = {"version": "test", "decision": "dismissed"}
+    elif path == "/store":
         seen_store_slugs.append(request.headers.get("x-store-slug"))
         result = {"store": store}
     elif path == "/delivery/cdek/status":
@@ -243,10 +246,12 @@ with sync_playwright() as playwright:
     page.get_by_role("textbox", name="Почта").fill("buyer@example.org")
     page.get_by_role("button", name="Продолжить").click()
     page.get_by_role("button", name="Продолжить").click()
-    page.get_by_role("checkbox", name="Согласен передать").check()
+    page.get_by_role("checkbox", name="Даю отдельное согласие").check()
+    page.get_by_role("checkbox", name="Ознакомился с").check()
     page.get_by_role("button", name="Отправить заявку").click()
     page.get_by_text("Заявка №TEST01 отправлена").wait_for()
     assert order_requests[-1]["items"][0]["quantity"] == 2, "checkout did not send cart quantity"
+    assert order_requests[-1]["consent"] and order_requests[-1]["termsAccepted"], "checkout did not send both legal decisions"
     page.get_by_role("button", name="Чат с продавцом").click()
     assert "/chat" in page.url, "order success did not open in-app chat"
     page.get_by_role("textbox", name="Текст сообщения").fill("Можно встретиться завтра?")
@@ -284,7 +289,8 @@ with sync_playwright() as playwright:
     page.screenshot(path="/tmp/shmotki-checkout-cdek-mobile.png", full_page=True)
     page.get_by_role("button", name="Продолжить").click()
     assert page.get_by_text("Проверьте заявку").is_visible()
-    page.get_by_role("checkbox", name="Согласен передать").check()
+    page.get_by_role("checkbox", name="Даю отдельное согласие").check()
+    page.get_by_role("checkbox", name="Ознакомился с").check()
     page.get_by_role("button", name="Отправить заявку").click()
     assert order_requests[-1]["deliveryPointCode"] == "MSK1" and order_requests[-1]["deliveryCityCode"] == 44 and order_requests[-1]["buyerEmail"] == "buyer@example.org" and order_requests[-1]["expectedDeliveryPrice"] == 420 and order_requests[-1]["expectedTariffCode"] == 136
     page.route("**/shmotki/api/delivery/cdek/status*", lambda route: route.fulfill(status=200, content_type="application/json", body='{"connected":false}'))
@@ -297,7 +303,8 @@ with sync_playwright() as playwright:
     page.get_by_label("Город").fill("Тверь")
     page.get_by_label("Адрес или желаемый ПВЗ").fill("СДЭК, Советская, 1")
     page.get_by_role("button", name="Продолжить").click()
-    page.get_by_role("checkbox", name="Согласен передать").check()
+    page.get_by_role("checkbox", name="Даю отдельное согласие").check()
+    page.get_by_role("checkbox", name="Ознакомился с").check()
     page.get_by_role("button", name="Отправить заявку").click()
     assert order_requests[-1]["deliveryAddress"] == "СДЭК, Советская, 1" and not order_requests[-1].get("deliveryPointCode"), "manual fallback did not preserve desired PVZ"
     page.unroute("**/shmotki/api/delivery/cdek/status*")

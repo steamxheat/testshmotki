@@ -40,7 +40,7 @@ try {
   await prisma.store.update({ where: { id: store.id }, data: { settings: { ...store.settings, deliveryMethods: ['meetup', 'cdek', 'yandex_delivery'], paymentDetails: 'СБП +79990000000, Тестовый получатель', deliveryOptions: [{ id: 'smoke_point', method: 'cdek', city: 'Москва', point: 'Тестовый ПВЗ', address: 'Тверская, 1', tariff: 'Стандарт', price: 450, eta: '3–5 дней', lat: 55.758, lon: 37.613 }, { id: 'smoke_yandex', method: 'yandex_delivery', city: 'Москва', point: 'Тестовый пункт Яндекс', address: 'Арбат, 1', tariff: 'Стандарт', price: 350, eta: '2–3 дня', lat: 55.752, lon: 37.592 }] } } });
   const ownerId = store.members[0].user.telegramId;
   const ownerName = store.members[0].user.firstName ?? 'Продавец';
-  const settingsResponse = await call(`/api/admin/${store.id}/settings`, ownerId, ownerName, 'PATCH', { settings: { deliveryMethods: ['meetup', 'cdek', 'yandex_delivery'], privacyUrl: 'https://example.org/privacy', termsUrl: 'https://example.org/terms', deliveryOptions: [{ id: 'smoke_point', method: 'cdek', city: 'Москва', point: 'Тестовый ПВЗ', address: 'Тверская, 1', tariff: 'Стандарт', price: 450, lat: 55.758, lon: 37.613 }, { id: 'smoke_yandex', method: 'yandex_delivery', city: 'Москва', point: 'Тестовый пункт Яндекс', address: 'Арбат, 1', tariff: 'Стандарт', price: 350, lat: 55.752, lon: 37.592 }] } });
+  const settingsResponse = await call(`/api/admin/${store.id}/settings`, ownerId, ownerName, 'PATCH', { settings: { deliveryMethods: ['meetup', 'cdek', 'yandex_delivery'], privacyUrl: 'https://example.org/privacy', termsUrl: 'https://example.org/terms', legalName: 'Тестовый продавец', legalInn: '123456789012', legalAddress: 'Москва, Тверская, 1', legalEmail: 'seller@example.org', deliveryOptions: [{ id: 'smoke_point', method: 'cdek', city: 'Москва', point: 'Тестовый ПВЗ', address: 'Тверская, 1', tariff: 'Стандарт', price: 450, lat: 55.758, lon: 37.613 }, { id: 'smoke_yandex', method: 'yandex_delivery', city: 'Москва', point: 'Тестовый пункт Яндекс', address: 'Арбат, 1', tariff: 'Стандарт', price: 350, lat: 55.752, lon: 37.592 }] } });
   assert.equal(settingsResponse.status, 200, JSON.stringify(settingsResponse.data));
   assert.equal(settingsResponse.data.store.settings.deliveryOptions[1].lat, 55.752);
   buyer = await prisma.user.create({ data: { telegramId: buyerTelegramId, firstName: marker } });
@@ -111,17 +111,18 @@ try {
   assert.equal(foreignFavorite.status, 404);
 
   const submit = (items) => call('/api/orders', buyerTelegramId, marker, 'POST', {
-    items, buyerName: marker, deliveryMethod: 'meetup', city: 'Москва', consent: true,
+    items, buyerName: marker, deliveryMethod: 'meetup', city: 'Москва', consent: true, termsAccepted: true,
   });
   const firstLines = [{ productId: firstProduct.id, variantId: firstProduct.variants.find((v) => v.size === 'M').id, quantity: 2 }, { productId: secondProduct.id, variantId: secondProduct.variants[0].id, quantity: 1 }];
   const legalSettings = (await prisma.store.findUniqueOrThrow({ where: { id: store.id } })).settings;
-  await prisma.store.update({ where: { id: store.id }, data: { settings: { ...legalSettings, termsUrl: null } } });
+  await prisma.store.update({ where: { id: store.id }, data: { settings: { ...legalSettings, legalName: null } } });
   const missingLegal = await submit(firstLines);
   assert.equal(missingLegal.status, 400, 'Без условий покупки заявку нельзя создать');
   assert.equal(missingLegal.data.error.code, 'store_legal_missing');
   await prisma.store.update({ where: { id: store.id }, data: { settings: legalSettings } });
   const first = await submit(firstLines);
   assert.equal(first.status, 201, JSON.stringify(first.data));
+  assert((await prisma.order.findUniqueOrThrow({ where: { id: first.data.order.id } })).termsAcceptedAt, 'Принятие условий записано в заказ');
   assert.equal(first.data.order.status, 'pending');
   assert.equal(first.data.order.items.length, 2);
   assert.equal(first.data.order.price, 310);
@@ -161,7 +162,7 @@ try {
   assert.equal((await prisma.productVariant.findUniqueOrThrow({ where: { id: firstLines[0].variantId } })).soldQuantity, 2);
   assert.equal((await prisma.product.findUniqueOrThrow({ where: { id: secondProduct.id } })).status, 'sold');
   const lastSize = firstProduct.variants.find((v) => v.size === 'L');
-  const oneLeft = { items: [{ productId: firstProduct.id, variantId: lastSize.id, quantity: 1 }], buyerName: marker, deliveryMethod: 'meetup', city: 'Москва', consent: true };
+  const oneLeft = { items: [{ productId: firstProduct.id, variantId: lastSize.id, quantity: 1 }], buyerName: marker, deliveryMethod: 'meetup', city: 'Москва', consent: true, termsAccepted: true };
   const races = await Promise.all([
     call('/api/orders', buyerTelegramId, marker, 'POST', oneLeft),
     call('/api/orders', otherBuyer.telegramId, otherBuyer.firstName, 'POST', oneLeft),
@@ -185,11 +186,11 @@ try {
 
   const thirdProduct = await prisma.product.create({ data: { storeId: store.id, title: `${marker} доставка`, priceAmount: 12000, condition: 'good', status: 'published', publishedAt: new Date(), variants: { create: { size: 'S', stockQuantity: 1 } } }, include: { variants: true } });
   productIds.push(thirdProduct.id);
-  const incompleteDelivery = await call('/api/orders', buyerTelegramId, marker, 'POST', { items: [{ productId: thirdProduct.id, variantId: thirdProduct.variants[0].id, quantity: 1 }], buyerName: marker, deliveryMethod: 'cdek', consent: true });
+  const incompleteDelivery = await call('/api/orders', buyerTelegramId, marker, 'POST', { items: [{ productId: thirdProduct.id, variantId: thirdProduct.variants[0].id, quantity: 1 }], buyerName: marker, deliveryMethod: 'cdek', consent: true, termsAccepted: true });
   assert.equal(incompleteDelivery.status, 400);
   const shipping = await call('/api/orders', buyerTelegramId, marker, 'POST', {
     items: [{ productId: thirdProduct.id, variantId: thirdProduct.variants[0].id, quantity: 1 }], buyerName: marker, buyerPhone: '+79991234567', buyerEmail: 'buyer@example.org',
-    city: 'Москва', deliveryOptionId: 'smoke_point', deliveryMethod: 'cdek', consent: true,
+    city: 'Москва', deliveryOptionId: 'smoke_point', deliveryMethod: 'cdek', consent: true, termsAccepted: true,
   });
   assert.equal(shipping.status, 201, JSON.stringify(shipping.data));
   const visible = await call(`/api/admin/${store.id}/orders`, ownerId, ownerName);
@@ -197,7 +198,7 @@ try {
 
   const yandexProduct = await prisma.product.create({ data: { storeId: store.id, title: `${marker} Яндекс`, priceAmount: 13000, condition: 'good', status: 'published', publishedAt: new Date(), variants: { create: { size: 'M', stockQuantity: 1 } } }, include: { variants: true } });
   productIds.push(yandexProduct.id);
-  const yandexRequest = { items: [{ productId: yandexProduct.id, variantId: yandexProduct.variants[0].id, quantity: 1 }], buyerName: marker, buyerPhone: '+79991234567', buyerEmail: 'buyer@example.org', city: 'Москва', deliveryOptionId: 'smoke_yandex', deliveryMethod: 'yandex_delivery', consent: true };
+  const yandexRequest = { items: [{ productId: yandexProduct.id, variantId: yandexProduct.variants[0].id, quantity: 1 }], buyerName: marker, buyerPhone: '+79991234567', buyerEmail: 'buyer@example.org', city: 'Москва', deliveryOptionId: 'smoke_yandex', deliveryMethod: 'yandex_delivery', consent: true, termsAccepted: true };
   const yandex = await call('/api/orders', buyerTelegramId, marker, 'POST', yandexRequest);
   assert.equal(yandex.status, 201, JSON.stringify(yandex.data));
   assert.equal(yandex.data.order.deliveryPrice, 350);
