@@ -148,7 +148,7 @@ export const api = {
 export const adminApi = {
   overview: (storeId: string) => get(`/api/admin/${storeId}/overview`),
   products: (storeId: string, query?: Record<string, unknown>) =>
-    get<{ items: Product[] }>(`/api/admin/${storeId}/products`, query),
+    get<{ items: Product[]; hasMore: boolean }>(`/api/admin/${storeId}/products`, query),
   product: (storeId: string, id: string) => get<{ product: Product }>(`/api/admin/${storeId}/products/${id}`),
   createProduct: (storeId: string, body: unknown) => post<{ product: Product }>(`/api/admin/${storeId}/products`, body),
   updateProduct: (storeId: string, id: string, body: unknown) =>
@@ -165,9 +165,11 @@ export const adminApi = {
   archiveCategory: (storeId: string, id: string) => post(`/api/admin/${storeId}/categories/${id}/archive`),
 
   orders: (storeId: string, query?: Record<string, unknown>) =>
-    get<{ items: Order[] }>(`/api/admin/${storeId}/orders`, query),
-  orderAction: (storeId: string, id: string, action: 'accept' | 'reject' | 'complete' | 'payment-confirm') =>
+    get<{ items: Order[]; hasMore: boolean }>(`/api/admin/${storeId}/orders`, query),
+  orderAction: (storeId: string, id: string, action: 'accept' | 'reject' | 'send' | 'complete' | 'payment-confirm') =>
     post(`/api/admin/${storeId}/orders/${id}/${action}`),
+  orderRefund: (storeId: string, id: string, reference: string) => post(`/api/admin/${storeId}/orders/${id}/refund`, { reference }),
+  manualShipment: (storeId: string, id: string, trackingNumber: string) => post(`/api/admin/${storeId}/orders/${id}/manual-shipment`, { trackingNumber }),
   cdekConnection: (storeId: string) => get<{ connection: { connected: boolean; clientId?: string; mode?: 'test' | 'live'; originCityCode?: number; originPoint?: string; senderName?: string; senderPhone?: string; weight?: number; length?: number; width?: number; height?: number } }>(`/api/admin/${storeId}/delivery/cdek`),
   saveCdekConnection: (storeId: string, body: unknown) => put<{ connected: boolean; mode: 'test' | 'live' }>(`/api/admin/${storeId}/delivery/cdek`, body),
   removeCdekConnection: (storeId: string) => del(`/api/admin/${storeId}/delivery/cdek`),

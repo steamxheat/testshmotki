@@ -1,6 +1,6 @@
 export type ProductStatus = 'draft' | 'published' | 'reserved' | 'sold' | 'archived';
 export type Condition = 'new_with_tag' | 'new_no_tag' | 'excellent' | 'good' | 'has_issues';
-export type OrderStatus = 'pending' | 'confirmed' | 'rejected' | 'completed' | 'cancelled' | 'expired';
+export type OrderStatus = 'pending' | 'confirmed' | 'sent' | 'rejected' | 'completed' | 'cancelled' | 'expired';
 export type DeliveryMethod = 'meetup' | 'cdek' | 'russian_post' | 'yandex_delivery' | 'dhl' | 'discuss';
 
 export interface Image {
@@ -133,6 +133,9 @@ export interface Order {
   items: { productId: string; variantId: string; title: string; size: string; quantity: number; price: number }[];
   receiptSubmittedAt: string | null;
   paymentConfirmedAt: string | null;
+  refundAmount: number | null;
+  refundConfirmedAt: string | null;
+  refundReference: string | null;
   paymentDetails: string | null;
   comment: string | null;
   status: OrderStatus;

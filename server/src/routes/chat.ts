@@ -26,6 +26,30 @@ const messageSchema = z.object({
   .refine((m) => !m.mediaUrl || (m.mediaType === 'image' ? m.mediaUrl.endsWith('.webp') : /\.(?:mp4|webm|mov)$/.test(m.mediaUrl)), 'Тип вложения не совпадает с файлом');
 
 const chatMediaDir = path.resolve(process.cwd(), '../.runtime/chat-media');
+
+export async function removeUnusedChatMedia(): Promise<number> {
+  const entries = await fs.readdir(chatMediaDir, { withFileTypes: true }).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === 'ENOENT') return [];
+    throw error;
+  });
+  let removed = 0;
+  const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+  for (let offset = 0; offset < entries.length; offset += 100) {
+    const candidates = (await Promise.all(entries.slice(offset, offset + 100).filter((entry) => entry.isFile() && /^[\w-]+\.(?:webp|mp4|webm|mov)$/.test(entry.name)).map(async (entry) => {
+      const stat = await fs.stat(path.join(chatMediaDir, entry.name));
+      return stat.mtimeMs < cutoff ? entry.name : null;
+    }))).filter((name): name is string => Boolean(name));
+    if (!candidates.length) continue;
+    const used = await prisma.chatMessage.findMany({ where: { mediaUrl: { in: candidates.map((name) => `/chat-media/${name}`) } }, select: { mediaUrl: true } });
+    const keep = new Set(used.map((message) => message.mediaUrl));
+    for (const name of candidates) {
+      if (keep.has(`/chat-media/${name}`)) continue;
+      await fs.unlink(path.join(chatMediaDir, name)).catch((error: NodeJS.ErrnoException) => { if (error.code !== 'ENOENT') throw error; });
+      removed++;
+    }
+  }
+  return removed;
+}
 const mediaUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 20 * 1024 * 1024, files: 1 },

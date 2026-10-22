@@ -46,6 +46,7 @@ enum ProductCondition {
 enum OrderStatus {
   pending // ожидает подтверждения
   confirmed // подтверждён
+  sent // передан перевозчику или покупателю назначена встреча
   rejected // отклонён
   completed // завершён
   cancelled // отменён покупателем
@@ -290,6 +291,9 @@ model Order {
   receiptFilename      String?        @map("receipt_filename")
   receiptSubmittedAt   DateTime?      @map("receipt_submitted_at")
   paymentConfirmedAt   DateTime?      @map("payment_confirmed_at")
+  refundAmount         Int?           @map("refund_amount")
+  refundConfirmedAt    DateTime?      @map("refund_confirmed_at")
+  refundReference      String?        @map("refund_reference")
   personalDataConsentAt DateTime?      @map("personal_data_consent_at")
   termsAcceptedAt      DateTime?      @map("terms_accepted_at")
   legalVersion         String?        @map("legal_version")
@@ -462,4 +466,22 @@ model AdminAuditLog {
   createdAt DateTime @default(now()) @map("created_at")
 
   @@map("admin_audit_log")
+}
+
+model BotNotification {
+  id            String    @id @default(cuid())
+  telegramId    BigInt    @map("telegram_id")
+  body          String
+  buttonText    String?   @map("button_text")
+  buttonPath    String?   @map("button_path")
+  storeSlug     String?   @map("store_slug")
+  attempts      Int       @default(0)
+  nextAttemptAt DateTime  @default(now()) @map("next_attempt_at")
+  lockedUntil   DateTime? @map("locked_until")
+  sentAt        DateTime? @map("sent_at")
+  error         String?
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  @@index([sentAt, nextAttemptAt])
+  @@map("bot_notifications")
 }

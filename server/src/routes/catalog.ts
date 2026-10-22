@@ -78,7 +78,14 @@ async function buildWhere(
   const color = asArray(q.color);
   const condition = asArray(q.condition);
   if (brand?.length) and.push({ brand: { in: brand } });
-  if (size?.length) and.push({ variants: { some: { size: { in: size } } } });
+  if (q.availableOnly) {
+    const available = await prisma.$queryRaw<{ product_id: string }[]>(Prisma.sql`
+      SELECT DISTINCT product_id FROM product_variants
+      WHERE stock_quantity > reserved_quantity + sold_quantity
+      ${size?.length ? Prisma.sql`AND size IN (${Prisma.join(size)})` : Prisma.empty}
+    `);
+    and.push({ id: { in: available.map((item) => item.product_id) } });
+  } else if (size?.length) and.push({ variants: { some: { size: { in: size } } } });
   if (color?.length) and.push({ color: { in: color } });
   if (condition?.length) and.push({ condition: { in: condition as never[] } });
 
@@ -100,8 +107,6 @@ function orderBy(sort: string): Prisma.ProductOrderByWithRelationInput[] {
       return [{ priceAmount: 'asc' }];
     case 'price_desc':
       return [{ priceAmount: 'desc' }];
-    case 'discount':
-      return [{ oldPriceAmount: { sort: 'desc', nulls: 'last' } }, { publishedAt: 'desc' }];
     default:
       return [{ publishedAt: 'desc' }, { createdAt: 'desc' }];
   }
@@ -118,16 +123,29 @@ catalogRouter.get(
     const store = req.store!;
     const where = await buildWhere(store.id, q, presentStoreSettings(store).showSold);
 
-    const [total, items] = await Promise.all([
-      prisma.product.count({ where }),
-      prisma.product.findMany({
-        where,
-        orderBy: orderBy(q.sort),
-        skip: (q.page - 1) * q.pageSize,
-        take: q.pageSize,
-        include: { images: { orderBy: { sortOrder: 'asc' }, take: 1 } },
-      }),
-    ]);
+    let total: number;
+    let items;
+    if (q.sort === 'discount') {
+      // shortcut: ранжируем цены в памяти для каталога до нескольких тысяч вещей; при росте нужен индексированный процент в БД.
+      const ranked = await prisma.product.findMany({ where, select: { id: true, priceAmount: true, oldPriceAmount: true } });
+      ranked.sort((a, b) => {
+        const aDiscount = a.oldPriceAmount && a.oldPriceAmount > a.priceAmount ? 1 - a.priceAmount / a.oldPriceAmount : 0;
+        const bDiscount = b.oldPriceAmount && b.oldPriceAmount > b.priceAmount ? 1 - b.priceAmount / b.oldPriceAmount : 0;
+        return bDiscount - aDiscount || a.id.localeCompare(b.id);
+      });
+      total = ranked.length;
+      const ids = ranked.slice((q.page - 1) * q.pageSize, q.page * q.pageSize).map((item) => item.id);
+      const pageItems = await prisma.product.findMany({ where: { id: { in: ids } }, include: { images: { orderBy: { sortOrder: 'asc' }, take: 1 } } });
+      const byId = new Map(pageItems.map((item) => [item.id, item]));
+      items = ids.map((id) => byId.get(id)!).filter(Boolean);
+    } else {
+      [total, items] = await Promise.all([
+        prisma.product.count({ where }),
+        prisma.product.findMany({ where, orderBy: orderBy(q.sort), skip: (q.page - 1) * q.pageSize, take: q.pageSize,
+          include: { images: { orderBy: { sortOrder: 'asc' }, take: 1 } },
+        }),
+      ]);
+    }
 
     // отметка избранного для текущего пользователя (§6.6)
     const favIds = new Set(

@@ -20,6 +20,7 @@ export const deliveryLabel: Record<DeliveryMethod, string> = {
 export const orderStatusLabel: Record<OrderStatus, string> = {
   pending: 'Ожидает подтверждения',
   confirmed: 'Подтверждён',
+  sent: 'Отправлен',
   rejected: 'Отклонён',
   completed: 'Завершён',
   cancelled: 'Отменён',
@@ -30,6 +31,7 @@ export const orderStatusLabel: Record<OrderStatus, string> = {
 export const orderStatusTone: Record<OrderStatus, string> = {
   pending: 'tone-wait',
   confirmed: 'tone-ok',
+  sent: 'tone-ok',
   rejected: 'tone-bad',
   completed: 'tone-done',
   cancelled: 'tone-muted',

@@ -24,7 +24,9 @@ function auth(id, name) {
 }
 
 async function call(path, userId, name, method = 'GET', body) {
-  const res = await fetch(`${base}${path}?store=${store.slug}`, {
+  const url = new URL(path, base);
+  url.searchParams.set('store', store.slug);
+  const res = await fetch(url, {
     method,
     headers: { 'Content-Type': 'application/json', 'X-Dev-User': auth(userId, name), 'X-Store-Slug': store.slug },
     body: body ? JSON.stringify(body) : undefined,
@@ -47,10 +49,13 @@ try {
   otherBuyer = await prisma.user.create({ data: { telegramId: buyerTelegramId + 1n, firstName: `${marker}-other` } });
   assert.equal((await call('/api/store', buyerTelegramId, marker)).data.store.settings.privacyUrl, 'https://example.org/privacy');
 
-  const firstProduct = await prisma.product.create({ data: { storeId: store.id, title: `${marker} встреча`, priceAmount: 10000, condition: 'good', status: 'published', publishedAt: new Date(), variants: { create: [{ size: 'M', stockQuantity: 2 }, { size: 'L', stockQuantity: 1 }] } }, include: { variants: true } });
+  const firstProduct = await prisma.product.create({ data: { storeId: store.id, title: `${marker} встреча`, priceAmount: 10000, oldPriceAmount: 20000, condition: 'good', status: 'published', publishedAt: new Date(), variants: { create: [{ size: 'M', stockQuantity: 2 }, { size: 'L', stockQuantity: 1 }] } }, include: { variants: true } });
   productIds.push(firstProduct.id);
-  const secondProduct = await prisma.product.create({ data: { storeId: store.id, title: `${marker} второй товар`, priceAmount: 11000, condition: 'good', status: 'published', publishedAt: new Date(), variants: { create: { size: 'Единый размер', stockQuantity: 1 } } }, include: { variants: true } });
+  const secondProduct = await prisma.product.create({ data: { storeId: store.id, title: `${marker} второй товар`, priceAmount: 11000, oldPriceAmount: 12000, condition: 'good', status: 'published', publishedAt: new Date(), variants: { create: { size: 'Единый размер', stockQuantity: 1 } } }, include: { variants: true } });
   productIds.push(secondProduct.id);
+  const discountSorted = await call(`/api/catalog?q=${marker}&sort=discount`, buyerTelegramId, marker);
+  assert.equal(discountSorted.status, 200);
+  assert.equal(discountSorted.data.items[0].id, firstProduct.id, 'Сортировка должна учитывать процент скидки, а не старую цену');
   const uploadForm = () => {
     const form = new FormData();
     form.append('files', new Blob([png], { type: 'image/png' }), 'photo.png');
@@ -131,6 +136,8 @@ try {
   assert.equal(first.data.order.status, 'pending');
   assert.equal(first.data.order.items.length, 2);
   assert.equal(first.data.order.price, 310);
+  const availableM = await call(`/api/catalog?q=${marker}&availableOnly=1&size=M`, buyerTelegramId, marker);
+  assert(!availableM.data.items.some((item) => item.id === firstProduct.id), 'Забронированный размер M нельзя показывать как доступный');
   assert.equal((await prisma.product.findUniqueOrThrow({ where: { id: firstProduct.id } })).status, 'published', 'Другой размер остаётся доступным');
   assert.equal((await call(`/api/admin/${store.id}/products/${firstProduct.id}/archive`, ownerId, ownerName, 'POST')).status, 409, 'Нельзя скрыть товар с активной бронью, даже если другой размер свободен');
   assert.equal((await call(`/api/admin/${store.id}/products/bulk-archive`, ownerId, ownerName, 'POST', { ids: [firstProduct.id] })).data.archived, 0);
@@ -138,6 +145,9 @@ try {
   assert.equal(duplicate.status, 409, 'Повторная заявка должна быть отклонена');
   const sellerOrders = await call(`/api/admin/${store.id}/orders`, ownerId, ownerName);
   assert(sellerOrders.data.items.some((order) => order.id === first.data.order.id && order.deliveryMethod === 'meetup'), 'Продавец не получил заявку');
+  assert.equal(typeof sellerOrders.data.hasMore, 'boolean', 'Список заказов должен сообщать о следующих страницах');
+  assert.equal((await call(`/api/admin/${store.id}/orders?page=0`, ownerId, ownerName)).status, 400);
+  assert.equal(typeof (await call(`/api/admin/${store.id}/products?page=1`, ownerId, ownerName)).data.hasMore, 'boolean');
   const accepted = await call(`/api/admin/${store.id}/orders/${first.data.order.id}/accept`, ownerId, ownerName, 'POST');
   assert.equal(accepted.status, 200, JSON.stringify(accepted.data));
   const buyerOrders = await call('/api/orders', buyerTelegramId, marker);
@@ -153,6 +163,7 @@ try {
   assert.equal(receiptDownload.headers.get('content-type'), 'application/pdf');
   const deniedReceipt = await fetch(`${base}/api/orders/${first.data.order.id}/receipt?store=${store.slug}`, { headers: { 'X-Dev-User': auth(otherBuyer.telegramId, otherBuyer.firstName) } });
   assert.equal(deniedReceipt.status, 404, 'Чужой чек недоступен');
+  assert.equal((await call(`/api/admin/${store.id}/orders/${first.data.order.id}/reject`, ownerId, ownerName, 'POST')).status, 400, 'Заявку с чеком нельзя отклонить');
   await prisma.storeMember.create({ data: { storeId: store.id, userId: otherBuyer.id, role: 'manager' } });
   assert.equal((await call(`/api/admin/${store.id}/settings`, otherBuyer.telegramId, otherBuyer.firstName)).status, 403, 'Менеджер не видит реквизиты');
   assert.equal((await call(`/api/admin/${store.id}/settings`, otherBuyer.telegramId, otherBuyer.firstName, 'PATCH', { settings: { paymentDetails: 'подмена' } })).status, 403, 'Менеджер не может менять реквизиты');
@@ -189,6 +200,19 @@ try {
   assert.equal(rejected.status, 200, JSON.stringify(rejected.data));
   assert.equal((await prisma.product.findUniqueOrThrow({ where: { id: rejectProduct.id } })).status, 'published');
 
+  const refundProduct = await prisma.product.create({ data: { storeId: store.id, title: `${marker} возврат`, priceAmount: 15000, condition: 'good', status: 'published', variants: { create: { size: 'M', stockQuantity: 1 } } }, include: { variants: true } });
+  productIds.push(refundProduct.id);
+  const refundOrder = await submit([{ productId: refundProduct.id, variantId: refundProduct.variants[0].id, quantity: 1 }]);
+  assert.equal(refundOrder.status, 201);
+  assert.equal((await call(`/api/admin/${store.id}/orders/${refundOrder.data.order.id}/accept`, ownerId, ownerName, 'POST')).status, 200);
+  assert.equal((await call(`/api/admin/${store.id}/orders/${refundOrder.data.order.id}/payment-confirm`, ownerId, ownerName, 'POST')).status, 200);
+  assert.equal((await call(`/api/admin/${store.id}/orders/${refundOrder.data.order.id}/reject`, ownerId, ownerName, 'POST')).status, 400, 'Оплаченный заказ нельзя отклонить');
+  assert.equal((await call(`/api/admin/${store.id}/orders/${refundOrder.data.order.id}/refund`, ownerId, ownerName, 'POST', { reference: 'TEST-RETURN-001' })).status, 200);
+  const refunded = (await call('/api/orders', buyerTelegramId, marker)).data.items.find((item) => item.id === refundOrder.data.order.id);
+  assert.equal(refunded.status, 'cancelled');
+  assert.equal(refunded.refundAmount, 150);
+  assert.equal((await prisma.productVariant.findUniqueOrThrow({ where: { id: refundProduct.variants[0].id } })).reservedQuantity, 0);
+
   const thirdProduct = await prisma.product.create({ data: { storeId: store.id, title: `${marker} доставка`, priceAmount: 12000, condition: 'good', status: 'published', publishedAt: new Date(), variants: { create: { size: 'S', stockQuantity: 1 } } }, include: { variants: true } });
   productIds.push(thirdProduct.id);
   const incompleteDelivery = await call('/api/orders', buyerTelegramId, marker, 'POST', { items: [{ productId: thirdProduct.id, variantId: thirdProduct.variants[0].id, quantity: 1 }], buyerName: marker, deliveryMethod: 'cdek', consent: true, termsAccepted: true });
@@ -220,6 +244,10 @@ try {
   assert.equal((await call(`/api/admin/${store.id}/orders/${shippingId}/cdek/manual-tracking`, ownerId, ownerName, 'POST', { trackingNumber: '1234567890' })).status, 200);
   assert.equal((await call(`/api/admin/${store.id}/orders/${shippingId}/cdek/manual-tracking`, ownerId, ownerName, 'POST', { trackingNumber: '0987654321' })).status, 409, 'Второе отправление создавать нельзя');
   assert.equal((await call('/api/orders', buyerTelegramId, marker)).data.items.find((item) => item.id === shippingId).shipment.trackingNumber, '1234567890');
+  assert.equal((await call(`/api/admin/${store.id}/orders/${shippingId}/complete`, ownerId, ownerName, 'POST')).status, 400, 'Нельзя завершить доставку без передачи перевозчику');
+  assert.equal((await call(`/api/admin/${store.id}/orders/${shippingId}/send`, ownerId, ownerName, 'POST')).status, 200);
+  assert.equal((await call('/api/orders', buyerTelegramId, marker)).data.items.find((item) => item.id === shippingId).status, 'sent');
+  assert.equal((await call(`/api/admin/${store.id}/orders/${shippingId}/complete`, ownerId, ownerName, 'POST')).status, 200);
 
   const yandexProduct = await prisma.product.create({ data: { storeId: store.id, title: `${marker} Яндекс`, priceAmount: 13000, condition: 'good', status: 'published', publishedAt: new Date(), variants: { create: { size: 'M', stockQuantity: 1 } } }, include: { variants: true } });
   productIds.push(yandexProduct.id);
@@ -227,6 +255,10 @@ try {
   const yandex = await call('/api/orders', buyerTelegramId, marker, 'POST', yandexRequest);
   assert.equal(yandex.status, 201, JSON.stringify(yandex.data));
   assert.equal(yandex.data.order.deliveryPrice, 350);
+  assert.equal((await call(`/api/admin/${store.id}/orders/${yandex.data.order.id}/accept`, ownerId, ownerName, 'POST')).status, 200);
+  assert.equal((await call(`/api/admin/${store.id}/orders/${yandex.data.order.id}/payment-confirm`, ownerId, ownerName, 'POST')).status, 200);
+  assert.equal((await call(`/api/admin/${store.id}/orders/${yandex.data.order.id}/manual-shipment`, ownerId, ownerName, 'POST', { trackingNumber: 'YANDEX12345' })).status, 200);
+  assert.equal((await call(`/api/admin/${store.id}/orders/${yandex.data.order.id}/send`, ownerId, ownerName, 'POST')).status, 200);
   const disabledSettings = { ...(await prisma.store.findUniqueOrThrow({ where: { id: store.id } })).settings, deliveryMethods: ['meetup', 'cdek'] };
   await prisma.store.update({ where: { id: store.id }, data: { settings: disabledSettings } });
   assert.equal((await call('/api/orders', buyerTelegramId, marker, 'POST', yandexRequest)).status, 400, 'Отключённая доставка недоступна');

@@ -73,6 +73,7 @@ adminRouter.get(
   h(async (req, res) => {
     const storeId = req.store!.id;
     const { q, status, category, sort } = req.query as Record<string, string | undefined>;
+    const page = z.coerce.number().int().min(1).max(10000).default(1).parse(req.query.page);
     const where: Prisma.ProductWhereInput = { storeId };
     const and: Prisma.ProductWhereInput[] = [];
     if (q) and.push({ OR: [{ title: { contains: q, mode: 'insensitive' } }, { brand: { contains: q, mode: 'insensitive' } }, { sellerSku: { contains: q, mode: 'insensitive' } }] });
@@ -85,10 +86,12 @@ adminRouter.get(
 
     const items = await prisma.product.findMany({
       where,
-      orderBy,
+      orderBy: [orderBy, { id: 'desc' }],
+      skip: (page - 1) * 40,
+      take: 41,
       include: { images: { orderBy: { sortOrder: 'asc' }, take: 1 } },
     });
-    res.json({ items: items.map((p) => presentProduct(p)) });
+    res.json({ items: items.slice(0, 40).map((p) => presentProduct(p)), hasMore: items.length > 40 });
   }),
 );
 
@@ -381,9 +384,12 @@ adminRouter.get(
   h(async (req, res) => {
     const storeId = req.store!.id;
     const { status } = req.query as Record<string, string | undefined>;
+    const page = z.coerce.number().int().min(1).max(10000).default(1).parse(req.query.page);
     const orders = await prisma.order.findMany({
       where: { storeId, ...(status ? { status: status as never } : {}) },
-      orderBy: { createdAt: 'desc' },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      skip: (page - 1) * 30,
+      take: 31,
       include: {
         product: { include: { images: { orderBy: { sortOrder: 'asc' }, take: 1 } } },
         history: { orderBy: { createdAt: 'asc' } },
@@ -391,30 +397,39 @@ adminRouter.get(
         shipment: true,
       },
     });
-    res.json({ items: orders.map((o) => presentOrder(o)) });
+    res.json({ items: orders.slice(0, 30).map((o) => presentOrder(o)), hasMore: orders.length > 30 });
   }),
 );
 
 // переходы статуса заявки и товара (§7.4)
 async function transition(
   req: import('express').Request,
-  action: 'accept' | 'reject' | 'complete',
+  action: 'accept' | 'reject' | 'send' | 'complete',
 ) {
   const storeId = req.store!.id;
-  const order = await prisma.order.findFirst({ where: { id: req.params.id, storeId }, include: { buyer: true } });
+  const order = await prisma.order.findFirst({ where: { id: req.params.id, storeId }, include: { buyer: true, shipment: true } });
   if (!order) throw notFound('Заказ не найден');
 
   const rules: Record<typeof action, { from: string[]; to: string; product?: string }> = {
     accept: { from: ['pending'], to: 'confirmed' }, // товар остаётся забронированным
     reject: { from: ['pending', 'confirmed'], to: 'rejected', product: 'published' },
-    complete: { from: ['confirmed'], to: 'completed', product: 'sold' },
+    send: { from: ['confirmed'], to: 'sent' },
+    complete: { from: ['confirmed', 'sent'], to: 'completed', product: 'sold' },
   };
   const rule = rules[action];
   if (!rule.from.includes(order.status)) throw badRequest('Недопустимый переход статуса');
-  if (action === 'complete' && !order.paymentConfirmedAt) throw badRequest('Сначала подтвердите получение оплаты');
+  if (action === 'reject' && (order.paymentConfirmedAt || order.receiptSubmittedAt)) throw badRequest('Оплаченный заказ или заявку с чеком нельзя отклонить. Проверьте оплату и при необходимости оформите возврат.');
+  if ((action === 'send' || action === 'complete') && !order.paymentConfirmedAt) throw badRequest('Сначала подтвердите получение оплаты');
+  if (action === 'send' && (order.deliveryMethod === 'meetup' || order.deliveryMethod === 'discuss')) throw badRequest('Для личной встречи используйте завершение после передачи вещи');
+  if (action === 'send' && (!order.shipment?.trackingNumber || order.shipment.state !== 'created')) throw badRequest('Сначала внесите действительный трек-номер или дождитесь оформления отправления');
+  if (action === 'send' && order.shipment?.mode === 'test') throw badRequest('Тестовое отправление СДЭК нельзя отметить как реально переданное');
+  if (action === 'complete' && order.status === 'confirmed' && !['meetup', 'discuss'].includes(order.deliveryMethod)) throw badRequest('Сначала отметьте передачу отправления перевозчику');
 
   await prisma.$transaction(async (tx) => {
-    const changed = await tx.order.updateMany({ where: { id: order.id, status: order.status }, data: {
+    const changed = await tx.order.updateMany({ where: { id: order.id, status: order.status,
+      ...(action === 'reject' ? { paymentConfirmedAt: null, receiptSubmittedAt: null } : {}),
+      ...((action === 'send' || action === 'complete') ? { paymentConfirmedAt: { not: null } } : {}),
+    }, data: {
       status: rule.to as never,
       ...(action === 'accept' ? { reservedUntil: new Date(Date.now() + config.reservationHours * 3600_000) } : {}),
     } });
@@ -435,12 +450,33 @@ async function transition(
     else notifyBuyer.orderConfirmed(order.buyer.telegramId, order.publicNumber, req.store!.slug);
   }
   if (action === 'reject') notifyBuyer.orderRejected(order.buyer.telegramId, order.publicNumber, req.store!.slug);
+  if (action === 'send') notifyBuyer.orderSent(order.buyer.telegramId, order.publicNumber, order.shipment!.trackingNumber!, req.store!.slug);
   if (action === 'complete') notifyBuyer.orderCompleted(order.buyer.telegramId, order.publicNumber, req.store!.slug);
 }
 
 adminRouter.post('/:storeId/orders/:id/accept', h(async (req, res) => { await transition(req, 'accept'); res.json({ ok: true }); }));
 adminRouter.post('/:storeId/orders/:id/reject', h(async (req, res) => { await transition(req, 'reject'); res.json({ ok: true }); }));
+adminRouter.post('/:storeId/orders/:id/send', h(async (req, res) => { await transition(req, 'send'); res.json({ ok: true }); }));
 adminRouter.post('/:storeId/orders/:id/complete', h(async (req, res) => { await transition(req, 'complete'); res.json({ ok: true }); }));
+
+adminRouter.post('/:storeId/orders/:id/refund', h(async (req, res) => {
+  const { reference } = z.object({ reference: z.string().trim().min(3).max(200) }).parse(req.body);
+  const order = await prisma.order.findFirst({ where: { id: req.params.id, storeId: req.store!.id }, include: { buyer: true, shipment: true } });
+  if (!order) throw notFound('Заказ не найден');
+  if (order.status !== 'confirmed' || !order.paymentConfirmedAt) throw badRequest('Возврат доступен только для подтверждённого оплаченного заказа до отправки');
+  if (order.shipment) throw badRequest('Сначала отмените отправление у перевозчика и обратитесь в поддержку магазина');
+  const amount = order.priceAmountSnapshot + (order.deliveryPriceAmount ?? 0);
+  await prisma.$transaction(async (tx) => {
+    const changed = await tx.order.updateMany({ where: { id: order.id, status: 'confirmed', paymentConfirmedAt: { not: null }, refundConfirmedAt: null }, data: {
+      status: 'cancelled', refundAmount: amount, refundConfirmedAt: new Date(), refundReference: reference,
+    } });
+    if (!changed.count) throw conflict('Статус заказа уже изменился');
+    await tx.orderStatusHistory.create({ data: { orderId: order.id, oldStatus: 'confirmed', newStatus: 'cancelled', changedByUserId: req.auth!.user.id } });
+    await releaseOrderStock(tx, order.id, false);
+  });
+  notifyBuyer.orderRefunded(order.buyer.telegramId, order.publicNumber, req.store!.slug);
+  res.json({ ok: true });
+}));
 
 adminRouter.post('/:storeId/orders/:id/payment-confirm', h(async (req, res) => {
   const order = await prisma.order.findFirst({ where: { id: req.params.id, storeId: req.store!.id }, include: { buyer: true } });
@@ -590,6 +626,19 @@ adminRouter.post('/:storeId/orders/:id/cdek/manual-tracking', h(async (req, res)
     throw error;
   });
   notifyBuyer.shipmentRegistered(order.buyer.telegramId, order.publicNumber, trackingNumber, req.store!.slug);
+  res.json({ ok: true });
+}));
+
+adminRouter.post('/:storeId/orders/:id/manual-shipment', h(async (req, res) => {
+  const { trackingNumber } = z.object({ trackingNumber: z.string().trim().regex(/^[A-Za-z0-9-]{6,40}$/, 'Проверьте трек-номер') }).parse(req.body);
+  const order = await prisma.order.findFirst({ where: { id: req.params.id, storeId: req.store!.id }, include: { buyer: true } });
+  if (!order) throw notFound('Заказ не найден');
+  if (order.status !== 'confirmed' || !order.paymentConfirmedAt || !['russian_post', 'yandex_delivery', 'dhl'].includes(order.deliveryMethod)) {
+    throw badRequest('Сначала подтвердите оплату заказа с доставкой');
+  }
+  if (await prisma.shipment.findUnique({ where: { orderId: order.id } })) throw conflict('Отправление уже указано');
+  await prisma.shipment.create({ data: { orderId: order.id, storeId: order.storeId, carrier: order.deliveryMethod, mode: 'manual', state: 'created', trackingNumber, tariffName: order.deliveryTariff, priceAmount: order.deliveryPriceAmount } });
+  notifyBuyer.shipmentRegisteredManual(order.buyer.telegramId, order.publicNumber, trackingNumber, req.store!.slug);
   res.json({ ok: true });
 }));
 

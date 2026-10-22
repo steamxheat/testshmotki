@@ -25,21 +25,23 @@ export function AdminProducts() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
 
   useEffect(() => {
     let active = true;
     setLoading(true);
     setError(null);
     const timer = window.setTimeout(() => {
-      adminApi.products(store!.id, { q: q || undefined, status: status || undefined, sort })
-        .then((r) => { if (active) setItems(r.items); })
+      adminApi.products(store!.id, { q: q || undefined, status: status || undefined, sort, page })
+        .then((r) => { if (active) { setItems((prev) => page === 1 ? r.items : [...prev, ...r.items]); setHasMore(r.hasMore); } })
         .catch((e) => { if (active) setError(e instanceof ApiError ? e.message : 'Не удалось загрузить товары'); })
         .finally(() => { if (active) setLoading(false); });
     }, q ? 350 : 0);
     return () => { active = false; window.clearTimeout(timer); };
-  }, [store?.id, q, status, sort, reloadKey]);
+  }, [store?.id, q, status, sort, page, reloadKey]);
 
-  const reload = () => setReloadKey((n) => n + 1);
+  const reload = () => { setPage(1); setReloadKey((n) => n + 1); };
 
   async function act(p: Product, fn: () => Promise<unknown>, msg: string) {
     try { await fn(); toast(msg); reload(); }
@@ -70,19 +72,19 @@ export function AdminProducts() {
 
       <div className="searchbar">
         <span className="ico"><Icon name="search" /></span>
-        <input aria-label="Поиск товаров" placeholder="Поиск по названию, бренду, артикулу" value={q} onChange={(e) => { setQ(e.target.value); setSelected(new Set()); }} />
+        <input aria-label="Поиск товаров" placeholder="Поиск по названию, бренду, артикулу" value={q} onChange={(e) => { setQ(e.target.value); setPage(1); setSelected(new Set()); }} />
       </div>
 
       <div className="tabs">
         {STATUS_TABS.map((s) => (
-          <button key={s || 'all'} className={`chip ${status === s ? 'active' : ''}`} onClick={() => { setStatus(s); setSelected(new Set()); }}>
+          <button key={s || 'all'} className={`chip ${status === s ? 'active' : ''}`} onClick={() => { setStatus(s); setPage(1); setSelected(new Set()); }}>
             {s ? STATUS_LABEL[s] : 'Все'}
           </button>
         ))}
       </div>
       <div className="chips wrap-chips" style={{ marginBottom: 12 }}>
         {[['new', 'Новые'], ['price_desc', 'Дороже'], ['price_asc', 'Дешевле']].map(([v, l]) => (
-          <button key={v} className={`chip ${sort === v ? 'active' : ''}`} onClick={() => setSort(v)}>{l}</button>
+          <button key={v} className={`chip ${sort === v ? 'active' : ''}`} onClick={() => { setSort(v); setPage(1); }}>{l}</button>
         ))}
       </div>
 
@@ -93,7 +95,7 @@ export function AdminProducts() {
         </div>
       )}
 
-      {loading ? <Loader /> : error ? <ErrorState message={error} onRetry={reload} /> : items.length === 0 ? (
+      {loading && page === 1 ? <Loader /> : error ? <ErrorState message={error} onRetry={reload} /> : items.length === 0 ? (
         <Empty icon="catalog" title="У вас пока нет товаров" action={<Link to="/admin/products/new" className="btn small" style={{ width: 'auto' }}>Добавить товар</Link>} />
       ) : (
         <div className="list">
@@ -119,6 +121,7 @@ export function AdminProducts() {
               </div>
             </div>
           ))}
+          {hasMore && <button className="btn outline" disabled={loading} onClick={() => setPage((n) => n + 1)}>{loading ? 'Загружаем…' : 'Показать ещё'}</button>}
         </div>
       )}
     </div>

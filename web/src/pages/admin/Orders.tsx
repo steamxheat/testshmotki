@@ -9,7 +9,7 @@ import { assetUrl } from '../../lib/asset';
 import { dateShort, deliveryLabel, money, orderStatusLabel, orderStatusTone } from '../../lib/format';
 import type { Order } from '../../types';
 
-const TABS = ['', 'pending', 'confirmed', 'completed', 'rejected', 'expired'];
+const TABS = ['', 'pending', 'confirmed', 'sent', 'completed', 'rejected', 'cancelled', 'expired'];
 
 export function AdminOrders() {
   const [params] = useSearchParams();
@@ -20,26 +20,30 @@ export function AdminOrders() {
   const [status, setStatus] = useState(TABS.includes(params.get('status') ?? '') ? params.get('status')! : '');
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
   const [cdekQuote, setCdekQuote] = useState<{ orderId: string; mode: 'test' | 'live'; originPoint: string; tariffCode: number; tariffName: string; price: number; periodMin?: number; periodMax?: number } | null>(null);
   const [cdekBusy, setCdekBusy] = useState<string | null>(null);
   const [manualPrice, setManualPrice] = useState<Record<string, string>>({});
   const [manualTracking, setManualTracking] = useState<Record<string, string>>({});
+  const [refundId, setRefundId] = useState<string | null>(null);
+  const [refundReference, setRefundReference] = useState('');
 
   useEffect(() => {
     let active = true;
     setLoading(true);
     setError(null);
-    adminApi.orders(store!.id, { status: status || undefined })
-      .then((r) => { if (active) setItems(r.items); })
+    adminApi.orders(store!.id, { status: status || undefined, page })
+      .then((r) => { if (active) { setItems((prev) => page === 1 ? r.items : [...prev, ...r.items]); setHasMore(r.hasMore); } })
       .catch((e) => { if (active) setError(e instanceof ApiError ? e.message : 'Не удалось загрузить заказы'); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [store?.id, status, reloadKey]);
+  }, [store?.id, status, page, reloadKey]);
 
-  const reload = () => setReloadKey((n) => n + 1);
+  const reload = () => { setPage(1); setReloadKey((n) => n + 1); };
 
-  async function action(o: Order, a: 'accept' | 'reject' | 'complete' | 'payment-confirm') {
-    const labels = { accept: 'Принять заявку?', reject: 'Отклонить заявку?', complete: 'Завершить сделку? Остатки будут списаны.', 'payment-confirm': 'Вы проверили поступление денег и подтверждаете оплату?' };
+  async function action(o: Order, a: 'accept' | 'reject' | 'send' | 'complete' | 'payment-confirm') {
+    const labels = { accept: 'Принять заявку?', reject: 'Отклонить заявку?', send: 'Вы действительно передали посылку перевозчику?', complete: 'Вещь уже вручена покупателю? После завершения остатки будут списаны, а покупатель сможет оставить отзыв.', 'payment-confirm': 'Вы проверили поступление денег и подтверждаете оплату?' };
     if (!confirm(labels[a])) return;
     try { await adminApi.orderAction(store!.id, o.id, a); toast('Статус обновлён'); reload(); }
     catch (e) { toast(e instanceof ApiError ? e.message : 'Ошибка'); }
@@ -79,12 +83,19 @@ export function AdminOrders() {
   }
   async function saveManualTracking(o: Order) {
     const tracking = manualTracking[o.id]?.trim() ?? '';
-    if (!/^[A-Za-z0-9-]{6,40}$/.test(tracking)) { toast('Проверьте трек-номер СДЭК'); return; }
-    if (!confirm(`Отправление оформлено в СДЭК? Покупателю придёт трек-номер ${tracking}.`)) return;
+    if (!/^[A-Za-z0-9-]{6,40}$/.test(tracking)) { toast('Проверьте трек-номер'); return; }
+    if (!confirm(`Отправление оформлено? Покупателю придёт трек-номер ${tracking}.`)) return;
     setCdekBusy(o.id);
-    try { await adminApi.cdekManualTracking(store!.id, o.id, tracking); toast('Трек-номер отправлен покупателю'); reload(); }
+    try { await (o.deliveryMethod === 'cdek' ? adminApi.cdekManualTracking(store!.id, o.id, tracking) : adminApi.manualShipment(store!.id, o.id, tracking)); toast('Трек-номер отправлен покупателю'); reload(); }
     catch (e) { toast(e instanceof ApiError ? e.message : 'Не удалось сохранить трек-номер'); }
     finally { setCdekBusy(null); }
+  }
+
+  async function recordRefund(o: Order) {
+    if (refundReference.trim().length < 3) { toast('Укажите номер операции или другое подтверждение возврата'); return; }
+    if (!confirm(`Вы уже вернули покупателю ${money(o.price + (o.deliveryPrice ?? 0))}? Приложение деньги не переводит.`)) return;
+    try { await adminApi.orderRefund(store!.id, o.id, refundReference.trim()); toast('Возврат записан'); setRefundId(null); setRefundReference(''); reload(); }
+    catch (e) { toast(e instanceof ApiError ? e.message : 'Не удалось записать возврат'); }
   }
 
   return (
@@ -92,13 +103,13 @@ export function AdminOrders() {
       <h1 style={{ marginBottom: 12 }}>Заказы</h1>
       <div className="tabs">
         {TABS.map((s) => (
-          <button key={s || 'all'} className={`chip ${status === s ? 'active' : ''}`} onClick={() => setStatus(s)}>
+          <button key={s || 'all'} className={`chip ${status === s ? 'active' : ''}`} onClick={() => { setStatus(s); setPage(1); }}>
             {s ? orderStatusLabel[s as keyof typeof orderStatusLabel] : 'Все'}
           </button>
         ))}
       </div>
 
-      {loading ? <Loader /> : error ? <ErrorState message={error} onRetry={reload} /> : items.length === 0 ? (
+      {loading && page === 1 ? <Loader /> : error ? <ErrorState message={error} onRetry={reload} /> : items.length === 0 ? (
         <Empty icon="package" title="Заявок пока нет" />
       ) : (
         <div className="list">
@@ -127,7 +138,8 @@ export function AdminOrders() {
                 {o.deliveryPointCode && <div className="small">Код ПВЗ СДЭК: {o.deliveryPointCode}</div>}
                 {o.deliveryTariff && <div className="small">{o.deliveryTariff === 'Ручное оформление' ? 'Доставка' : 'Тариф продавца'}: {o.deliveryTariff} · {o.deliveryPrice == null ? 'стоимость не указана' : money(o.deliveryPrice)}</div>}
                 {o.deliveryPrice != null && <div className="small"><b>С покупателя всего: {money(o.price + o.deliveryPrice)}</b></div>}
-                {o.shipment && <div className="small" style={{ marginTop: 8 }}><b>СДЭК · {o.shipment.mode === 'manual' ? 'вручную' : o.shipment.mode === 'test' ? 'тест' : 'рабочая среда'}</b><div>Состояние: {o.shipment.mode === 'manual' ? 'трек-номер внесён продавцом' : o.shipment.state === 'created' ? 'накладная создана' : o.shipment.state === 'submitted' ? 'СДЭК обрабатывает запрос' : o.shipment.state === 'invalid' ? 'СДЭК отклонил накладную' : 'результат не подтверждён'}</div>{o.shipment.trackingNumber && <div>Трек-номер: {o.shipment.trackingNumber}</div>}{o.shipment.originPoint && <div>Пункт сдачи: {o.shipment.originPoint}</div>}{o.shipment.error && <div role="alert">{o.shipment.error}</div>}</div>}
+                {o.shipment && <div className="small" style={{ marginTop: 8 }}><b>{deliveryLabel[o.deliveryMethod]} · {o.shipment.mode === 'manual' ? 'вручную' : o.shipment.mode === 'test' ? 'тест' : 'рабочая среда'}</b><div>Состояние: {o.shipment.mode === 'manual' ? 'трек-номер внесён продавцом' : o.shipment.state === 'created' ? 'накладная создана' : o.shipment.state === 'submitted' ? 'СДЭК обрабатывает запрос' : o.shipment.state === 'invalid' ? 'СДЭК отклонил накладную' : 'результат не подтверждён'}</div>{o.shipment.trackingNumber && <div>Трек-номер: {o.shipment.trackingNumber}</div>}{o.shipment.originPoint && <div>Пункт сдачи: {o.shipment.originPoint}</div>}{o.shipment.error && <div role="alert">{o.shipment.error}</div>}</div>}
+                {o.refundConfirmedAt && <div className="small" style={{ marginTop: 8 }}>Возврат записан: {money(o.refundAmount ?? 0)} · {dateShort(o.refundConfirmedAt)}. Подтверждение: {o.refundReference}</div>}
                 {o.comment && <div className="small muted" style={{ marginTop: 4 }}>«{o.comment}»</div>}
               </div>
 
@@ -135,12 +147,14 @@ export function AdminOrders() {
 
               {o.deliveryMethod === 'cdek' && o.deliveryTariff === 'Ручное оформление' && o.status === 'confirmed' && o.paymentConfirmedAt && !o.shipment && <div className="order-shipment"><strong>Оформите СДЭК вручную</strong><p className="small muted">Создайте отправление в кабинете или отделении СДЭК. Затем внесите трек-номер; приложение само не создаёт накладную и QR-код.</p><div className="row"><div className="field grow"><label htmlFor={`manual-tracking-${o.id}`}>Трек-номер</label><input id={`manual-tracking-${o.id}`} value={manualTracking[o.id] ?? ''} maxLength={40} onChange={(e) => setManualTracking((prev) => ({ ...prev, [o.id]: e.target.value }))} /></div><button className="btn small" type="button" disabled={cdekBusy === o.id} onClick={() => saveManualTracking(o)}>Отправить трек-номер</button></div></div>}
 
+              {['russian_post', 'yandex_delivery', 'dhl'].includes(o.deliveryMethod) && o.status === 'confirmed' && o.paymentConfirmedAt && !o.shipment && <div className="order-shipment"><strong>Оформите доставку вручную</strong><p className="small muted">После оформления у перевозчика внесите трек-номер. Приложение не создаёт отправление автоматически.</p><div className="row"><div className="field grow"><label htmlFor={`manual-tracking-${o.id}`}>Трек-номер</label><input id={`manual-tracking-${o.id}`} value={manualTracking[o.id] ?? ''} maxLength={40} onChange={(e) => setManualTracking((prev) => ({ ...prev, [o.id]: e.target.value }))} /></div><button className="btn small" type="button" disabled={cdekBusy === o.id} onClick={() => saveManualTracking(o)}>Сообщить трек</button></div></div>}
+
               {o.deliveryMethod === 'cdek' && o.deliveryTariff !== 'Ручное оформление' && o.status === 'confirmed' && o.paymentConfirmedAt && <div className="order-shipment">
                 {!o.shipment && <><button className="btn small outline" disabled={cdekBusy === o.id} onClick={() => quoteShipment(o)}>{cdekBusy === o.id ? 'Считаем тариф…' : 'Рассчитать СДЭК'}</button>{cdekQuote?.orderId === o.id && <div className="order-shipment-quote"><strong>{cdekQuote.tariffName} · {money(cdekQuote.price)}</strong><p className="small muted">{cdekQuote.periodMin && cdekQuote.periodMax ? `${cdekQuote.periodMin}–${cdekQuote.periodMax} дней · ` : ''}Сдача: {cdekQuote.originPoint} · {cdekQuote.mode === 'test' ? 'тестовая среда' : 'рабочая среда'}. Доставка оплачивается по договору продавца со СДЭК.</p><button className="btn small" disabled={cdekBusy === o.id} onClick={() => createShipment(o)}>Создать накладную</button></div>}</>}
                 {o.shipment && o.shipment.state === 'submitted' && <button className="btn small outline" disabled={cdekBusy === o.id} onClick={() => checkShipment(o)}>{cdekBusy === o.id ? 'Проверяем…' : 'Проверить в СДЭК'}</button>}
               </div>}
 
-              {(o.status === 'confirmed' || o.status === 'completed') && <div className="order-payment">
+              {['confirmed', 'sent', 'completed', 'cancelled'].includes(o.status) && <div className="order-payment">
                 <strong>{o.paymentConfirmedAt ? 'Оплата подтверждена' : o.deliveryMethod === 'cdek' && o.deliveryPrice == null ? 'Ожидаем согласования доставки' : o.receiptSubmittedAt ? 'Чек прислан — проверьте поступление' : 'Ожидаем оплату'}</strong>
                 {o.receiptSubmittedAt && <button className="text-action" onClick={() => downloadReceipt(o.id).catch(() => toast('Не удалось скачать чек'))}>Скачать чек</button>}
                 {o.status === 'confirmed' && !o.paymentConfirmedAt && !(o.deliveryMethod === 'cdek' && o.deliveryPrice == null) && <button className="btn small outline" onClick={() => action(o, 'payment-confirm')}>Подтвердить получение денег</button>}
@@ -156,11 +170,15 @@ export function AdminOrders() {
               <div className="order-actions" style={{ marginTop: 10 }}>
                 <Link className="btn small outline" to={`/admin/chats/${o.buyerId}`}><Icon name="chat" size={17} />Покупателю</Link>
                 {o.status === 'pending' && <button className="btn small" onClick={() => action(o, 'accept')}>Принять</button>}
-                {(o.status === 'pending' || o.status === 'confirmed') && <button className="btn small danger" onClick={() => action(o, 'reject')}>Отклонить</button>}
-                {o.status === 'confirmed' && <button className="btn small" onClick={() => action(o, 'complete')} disabled={!o.paymentConfirmedAt}>Завершить</button>}
+                {(o.status === 'pending' || o.status === 'confirmed') && !o.paymentConfirmedAt && !o.receiptSubmittedAt && <button className="btn small danger" onClick={() => action(o, 'reject')}>Отклонить</button>}
+                {o.status === 'confirmed' && o.paymentConfirmedAt && o.shipment?.state === 'created' && o.shipment.mode !== 'test' && o.shipment.trackingNumber && !['meetup', 'discuss'].includes(o.deliveryMethod) && <button className="btn small" onClick={() => action(o, 'send')}>Передано перевозчику</button>}
+                {(o.status === 'sent' || (o.status === 'confirmed' && ['meetup', 'discuss'].includes(o.deliveryMethod))) && <button className="btn small" onClick={() => action(o, 'complete')} disabled={!o.paymentConfirmedAt}>Вручено покупателю</button>}
+                {o.status === 'confirmed' && o.paymentConfirmedAt && !o.shipment && <button className="btn small outline" onClick={() => { setRefundId(o.id); setRefundReference(''); }}>Записать возврат</button>}
               </div>
+              {refundId === o.id && <div className="order-shipment"><strong>Возврат всей суммы</strong><p className="small muted">Сначала переведите деньги покупателю вне приложения. После этого укажите номер операции или другое подтверждение; приложение только зафиксирует возврат.</p><div className="field"><label htmlFor={`refund-${o.id}`}>Подтверждение возврата</label><input id={`refund-${o.id}`} value={refundReference} maxLength={200} onChange={(e) => setRefundReference(e.target.value)} /></div><div className="row"><button className="btn small danger" onClick={() => recordRefund(o)}>Деньги возвращены</button><button className="btn small outline" onClick={() => setRefundId(null)}>Назад</button></div></div>}
             </div>
           ))}
+          {hasMore && <button className="btn outline" disabled={loading} onClick={() => setPage((n) => n + 1)}>{loading ? 'Загружаем…' : 'Показать ещё'}</button>}
         </div>
       )}
     </div>

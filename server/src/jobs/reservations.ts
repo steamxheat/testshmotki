@@ -3,7 +3,8 @@ import { prisma } from '../db.js';
 import { releaseOrderStock } from '../lib/inventory.js';
 import { refreshCdekShipment } from '../lib/shipment.js';
 import { removeUnusedUploads } from '../lib/upload.js';
-import { notifyBuyer, notifySeller } from '../telegram/notify.js';
+import { removeUnusedChatMedia } from '../routes/chat.js';
+import { deliverPendingNotifications, notifyBuyer, notifySeller } from '../telegram/notify.js';
 
 /**
  * Снятие просроченной брони (§6.7, §9). Если продавец не принял заявку за
@@ -78,8 +79,12 @@ export function startReservationCron(): void {
   cron.schedule('* * * * *', () => {
     expireOverdueReservations().catch((e) => console.error('[cron]', e));
     notifyExpiringSoon().catch((e) => console.error('[cron]', e));
+    deliverPendingNotifications().catch((e) => console.error('[cron] notification delivery', e));
   });
   cron.schedule('*/5 * * * *', () => refreshPendingShipments().catch((e) => console.error('[cron] CDEK status', e)));
-  cron.schedule('17 3 * * *', () => removeUnusedUploads().catch((e) => console.error('[cron] upload cleanup', e)));
+  cron.schedule('17 3 * * *', () => {
+    removeUnusedUploads().catch((e) => console.error('[cron] upload cleanup', e));
+    removeUnusedChatMedia().catch((e) => console.error('[cron] chat media cleanup', e));
+  });
   console.log('[cron] планировщик брони запущен (каждую минуту)');
 }
