@@ -3,7 +3,7 @@ import type { Store } from '@prisma/client';
 import { presentStoreSettings } from './present.js';
 
 // Менять при содержательном изменении текстов политики или условий покупки.
-const TEXT_VERSION = '2026-10-22-3';
+const TEXT_VERSION = '2026-10-22-4';
 
 export function legalVersion(store: Store) {
   const s = presentStoreSettings(store);
