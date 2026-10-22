@@ -51,10 +51,11 @@ order_actions = []
 chat_messages = []
 order_requests = []
 legal_notice_decision = None
+profile = {"id": "u1", "firstName": "Владелец", "lastName": "", "username": "owner", "avatarUrl": None, "phone": None, "contactName": None, "contactEmail": None, "deliveryCity": None, "deliveryAddress": None}
 
 
 def route_api(route):
-    global store, legal_notice_decision
+    global store, legal_notice_decision, profile
     request = route.request
     parsed = urlparse(request.url)
     path = parsed.path.removeprefix("/shmotki/api")
@@ -114,7 +115,11 @@ def route_api(route):
     elif path == "/reviews":
         result = {"items": [], "rating": 0, "reviewsCount": 0}
     elif path == "/profile":
-        result = {"user": {"id": "u1", "firstName": "Владелец", "lastName": "", "username": "owner", "avatarUrl": None}, "ordersCount": 0, "stores": [{"id": "s1", "role": "owner"}]}
+        if request.method == "PATCH":
+            profile.update(body)
+            result = {"ok": True}
+        else:
+            result = {"user": profile, "ordersCount": 0, "stores": [{"id": "s1", "role": "owner"}]}
     elif path.endswith("/overview"):
         result = {"activeProducts": 1, "reservedProducts": 0, "newOrders": 1, "completedOrders": {"d7": 0, "d30": 0}, "catalogViews": {"d7": 0, "d30": 0}, "favoriteAdds": 0, "conversion": 0, "recentEvents": []}
     elif path.endswith("/products/p1"):
@@ -200,6 +205,13 @@ with sync_playwright() as playwright:
             if path == "admin" and width == 375:
                 page.get_by_role("link", name="Новые заявки Ожидают вашего решения").wait_for()
                 page.screenshot(path="/tmp/shmotki-overview-mobile.png", full_page=True)
+            if path == "profile" and width == 375:
+                page.get_by_role("button", name="Изменить").click()
+                page.get_by_label("ФИО").fill("Тестовый покупатель")
+                page.get_by_label("Почта").fill("buyer@example.org")
+                page.get_by_role("button", name="Сохранить").click()
+                assert profile["contactName"] == "Тестовый покупатель"
+                assert profile["contactEmail"] == "buyer@example.org"
             if path == "admin/products/p1":
                 page.get_by_label("Состояние").wait_for()
                 assert page.locator(".select-wrap select").evaluate_all("els => els.every(e => getComputedStyle(e).appearance === 'none')")

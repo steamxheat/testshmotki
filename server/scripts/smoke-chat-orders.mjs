@@ -47,6 +47,11 @@ try {
   assert.equal(settingsResponse.data.store.settings.deliveryOptions[1].lat, 55.752);
   buyer = await prisma.user.create({ data: { telegramId: buyerTelegramId, firstName: marker } });
   otherBuyer = await prisma.user.create({ data: { telegramId: buyerTelegramId + 1n, firstName: `${marker}-other` } });
+  const profileSaved = await call('/api/profile', buyerTelegramId, marker, 'PATCH', { contactName: 'Тестовый покупатель', phone: '+79990000000', contactEmail: 'buyer@example.org', deliveryCity: 'Москва', deliveryAddress: 'Тверская, 1' });
+  assert.equal(profileSaved.status, 200, JSON.stringify(profileSaved.data));
+  const profileRead = await call('/api/profile', buyerTelegramId, marker);
+  assert.equal(profileRead.data.user.contactName, 'Тестовый покупатель');
+  assert.equal(profileRead.data.user.deliveryAddress, 'Тверская, 1');
   assert.equal((await call('/api/store', buyerTelegramId, marker)).data.store.settings.privacyUrl, 'https://example.org/privacy');
 
   const firstProduct = await prisma.product.create({ data: { storeId: store.id, title: `${marker} встреча`, priceAmount: 10000, oldPriceAmount: 20000, condition: 'good', status: 'published', publishedAt: new Date(), variants: { create: [{ size: 'M', stockQuantity: 2 }, { size: 'L', stockQuantity: 1 }] } }, include: { variants: true } });

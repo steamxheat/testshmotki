@@ -53,6 +53,19 @@ export function Checkout() {
   const ids = [...new Set(cart.map((i) => i.productId).concat(productId && !cart.length ? [productId] : []))].join(',');
 
   useEffect(() => {
+    let active = true;
+    api.profile().then(({ user }) => {
+      if (!active) return;
+      setName((value) => value === (tgUser.first_name ?? '') ? user.contactName || value : value);
+      setPhone((value) => value || user.phone || '');
+      setEmail((value) => value || user.contactEmail || '');
+      setCity((value) => value === (store?.city ?? '') ? user.deliveryCity || value : value);
+      setDeliveryAddress((value) => value || user.deliveryAddress || '');
+    }).catch(() => undefined);
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
     if (!ids) { setProducts({}); setLoading(false); return; }
     let active = true;
     setLoading(true);

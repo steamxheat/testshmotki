@@ -124,6 +124,7 @@ export const api = {
   createReview: (body: unknown) => post<{ review: Review }>('/api/reviews', body),
 
   profile: () => get<Profile>('/api/profile'),
+  updateProfile: (data: { contactName: string; phone: string; contactEmail: string; deliveryCity: string; deliveryAddress: string }) => patch<{ ok: true }>('/api/profile', data),
   logEvent: (type: string, productId?: string) => post('/api/events', { type, productId }).catch(() => undefined),
   upload: async (files: FileList | File[], orderId?: string): Promise<string[]> => {
     const fd = new FormData();

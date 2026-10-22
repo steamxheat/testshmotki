@@ -103,6 +103,10 @@ model User {
   lastName   String?   @map("last_name")
   avatarUrl  String?   @map("avatar_url")
   phone      String?
+  contactName String?  @map("contact_name")
+  contactEmail String? @map("contact_email")
+  deliveryCity String? @map("delivery_city")
+  deliveryAddress String? @map("delivery_address")
   createdAt  DateTime  @default(now()) @map("created_at")
   lastSeenAt DateTime  @default(now()) @map("last_seen_at")
 

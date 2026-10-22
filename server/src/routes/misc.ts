@@ -69,6 +69,10 @@ miscRouter.get(
         username: user.username,
         avatarUrl: user.avatarUrl,
         phone: user.phone,
+        contactName: user.contactName,
+        contactEmail: user.contactEmail,
+        deliveryCity: user.deliveryCity,
+        deliveryAddress: user.deliveryAddress,
       },
       ordersCount,
       // магазины, где пользователь — продавец (вход в админку, §7)
@@ -76,6 +80,26 @@ miscRouter.get(
     });
   }),
 );
+
+const profileSchema = z.object({
+  contactName: z.string().trim().max(100),
+  phone: z.string().trim().max(32),
+  contactEmail: z.union([z.literal(''), z.string().trim().email().max(200)]),
+  deliveryCity: z.string().trim().max(100),
+  deliveryAddress: z.string().trim().max(300),
+});
+
+miscRouter.patch('/profile', authenticate, resolveStore(), h(async (req, res) => {
+  const data = profileSchema.parse(req.body);
+  await prisma.user.update({ where: { id: req.auth!.user.id }, data: {
+    contactName: data.contactName || null,
+    phone: data.phone || null,
+    contactEmail: data.contactEmail || null,
+    deliveryCity: data.deliveryCity || null,
+    deliveryAddress: data.deliveryAddress || null,
+  } });
+  res.json({ ok: true });
+}));
 
 // POST /api/uploads — загрузка изображений (§6.5, §7.2). До 10 файлов.
 miscRouter.post(

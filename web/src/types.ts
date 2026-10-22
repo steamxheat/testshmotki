@@ -170,6 +170,10 @@ export interface Profile {
     username: string | null;
     avatarUrl: string | null;
     phone: string | null;
+    contactName: string | null;
+    contactEmail: string | null;
+    deliveryCity: string | null;
+    deliveryAddress: string | null;
   };
   ordersCount: number;
   stores: { id: string; slug: string; name: string; logoUrl: string | null; role: string }[];
