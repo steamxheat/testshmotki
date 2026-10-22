@@ -69,6 +69,8 @@ const del = <T>(path: string) => request<T>(path, { method: 'DELETE' });
 
 export const api = {
   store: () => get<{ store: Store }>('/api/store'),
+  legalNotice: () => get<{ version: string; decision: 'accepted' | 'dismissed' | null }>('/api/store/legal-notice'),
+  setLegalNotice: (decision: 'accepted' | 'dismissed') => post<{ version: string; decision: string }>('/api/store/legal-notice', { decision }),
   categories: () => get<{ categories: Category[] }>('/api/store/categories'),
   home: () => get<{ newArrivals: Product[]; discounted: Product[]; recent: Product[] }>('/api/catalog/home'),
   filters: () => get<Filters>('/api/catalog/filters'),

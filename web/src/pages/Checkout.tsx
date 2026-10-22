@@ -46,6 +46,7 @@ export function Checkout() {
   const [cdekQuoteError, setCdekQuoteError] = useState('');
   const [comment, setComment] = useState('');
   const [consent, setConsent] = useState(false);
+  const [termsAccepted, setTermsAccepted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState<{ number: string } | null>(null);
   const [step, setStep] = useState(1);
@@ -149,7 +150,7 @@ export function Checkout() {
   }
 
   async function submit() {
-    if (!consent || submitting || invalid || !lines.length || !name.trim() || !phone.trim() || !email.trim()) return;
+    if (!consent || !termsAccepted || submitting || invalid || !lines.length || !name.trim() || !phone.trim() || !email.trim()) return;
     setSubmitting(true);
     try {
       const r = await api.createOrder({
@@ -159,7 +160,7 @@ export function Checkout() {
         deliveryOptionId: option?.id, deliveryMethod: delivery,
         deliveryCityCode: cdekPoint?.cityCode, deliveryPointCode: cdekPoint?.code,
         expectedDeliveryPrice: cdekQuote?.price, expectedTariffCode: cdekQuote?.tariffCode,
-        comment: comment.trim() || undefined, consent: true,
+        comment: comment.trim() || undefined, consent: true, termsAccepted: true,
       });
       if (cart.length) setCart(getCart().filter((i) => !lines.some((line) => line.variantId === i.variantId)));
       haptic('success');
@@ -175,8 +176,8 @@ export function Checkout() {
   if (loadError) return <div className="page"><TopBar title="Оформление" fallback="/cart" /><ErrorState message={loadError} onRetry={() => setRetry((n) => n + 1)} /></div>;
   if (done) return <div className="page"><Empty icon="check" title={`Заявка №${done.number} отправлена`} hint="Вещи забронированы. Продавец получит заявку и подтвердит её вручную." action={<div className="checkout-success-actions"><button className="btn" onClick={() => nav('/orders')}>Мои заказы</button><button className="btn secondary" onClick={() => nav('/chat')}><Icon name="chat" size={18} />Чат с продавцом</button></div>} /></div>;
   if (!lines.length) return <div className="page"><TopBar title="Оформление" fallback="/cart" /><Empty icon="cart" title="Корзина пуста" action={<Link className="btn small" to="/catalog">В каталог</Link>} /></div>;
-  if (!store?.settings.privacyUrl?.startsWith('https://') || !store.settings.termsUrl?.startsWith('https://')) {
-    return <div className="page"><TopBar title="Оформление" fallback="/cart" /><Empty icon="lock" title="Оформление пока недоступно" hint="Продавец ещё не добавил документы магазина. Напишите ему в чате или попробуйте позже." action={<Link className="btn" to="/chat">Написать продавцу</Link>} /></div>;
+  if (!store?.settings.legalReady) {
+    return <div className="page"><TopBar title="Оформление" fallback="/cart" /><Empty icon="lock" title="Оформление пока недоступно" hint="Продавец ещё не указал данные для документов магазина. Напишите ему в чате или попробуйте позже." action={<Link className="btn" to="/chat">Написать продавцу</Link>} /></div>;
   }
   if (invalid) return <div className="page"><TopBar title="Оформление" fallback="/cart" /><Empty icon="unavailable" title="Наличие изменилось" hint="Вернитесь в корзину и проверьте размеры и количество." action={<Link className="btn small" to="/cart">Проверить корзину</Link>} /></div>;
 
@@ -219,8 +220,8 @@ export function Checkout() {
       <section className="checkout-summary"><h2>Ваш заказ</h2><div className="checkout-lines">{lines.map((line) => { const p = products[line.productId]; const v = p.variants.find((item) => item.id === line.variantId); return <div key={line.variantId} className="checkout-line">{p.coverUrl && <img className="thumb" src={assetUrl(p.coverUrl)} alt="" />}<div className="grow"><strong>{p.title}</strong><div className="small muted">Размер {v?.size} · {line.quantity} шт.</div></div><b>{money(p.price * line.quantity)}</b></div>; })}</div>
         <div className="checkout-total"><span>Товары</span><b>{money(productsTotal)}</b></div><div className="checkout-total"><span>Доставка</span><b>{option || cdekQuote ? money(option?.price ?? cdekQuote!.price) : 'Уточнит продавец'}</b></div>{(option || cdekQuote) && <div className="checkout-total final"><span>Предварительно всего</span><b>{money(productsTotal + (option?.price ?? cdekQuote!.price))}</b></div>}
       </section>
-      {step === 3 && <label className="checkbox checkout-consent"><input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} /><span className="small">Согласен передать указанные данные продавцу для обработки заявки.{store?.settings.privacyUrl && <> <a href={store.settings.privacyUrl} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>Политика конфиденциальности</a>.</>}{store?.settings.termsUrl && <> <a href={store.settings.termsUrl} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>Соглашение</a>.</>}</span></label>}
-      <div className="checkout-actions">{step > 1 && <button type="button" className="btn outline" onClick={() => setStep(step - 1)}>Назад</button>}<button className="btn" type="submit" disabled={step === 3 && (!consent || submitting)}>{step === 3 ? submitting ? 'Отправляем…' : 'Отправить заявку' : 'Продолжить'}</button></div>
+      {step === 3 && <div className="checkout-legal"><label className="checkbox checkout-consent"><input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} /><span className="small">Даю отдельное согласие {store?.settings.legalName} на обработку указанных мною данных для заявки, связи, оплаты и доставки. <Link to="/legal/privacy" onClick={(e) => e.stopPropagation()}>Политика обработки данных</Link>.</span></label><label className="checkbox checkout-consent"><input type="checkbox" checked={termsAccepted} onChange={(e) => setTermsAccepted(e.target.checked)} /><span className="small">Ознакомился с <Link to="/legal/terms" onClick={(e) => e.stopPropagation()}>условиями покупки и возврата</Link>.</span></label></div>}
+      <div className="checkout-actions">{step > 1 && <button type="button" className="btn outline" onClick={() => setStep(step - 1)}>Назад</button>}<button className="btn" type="submit" disabled={step === 3 && (!consent || !termsAccepted || submitting)}>{step === 3 ? submitting ? 'Отправляем…' : 'Отправить заявку' : 'Продолжить'}</button></div>
     </form>
   </div>;
 }

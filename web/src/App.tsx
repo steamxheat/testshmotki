@@ -1,4 +1,5 @@
-import { Outlet, Route, Routes } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { Link, Outlet, Route, Routes, useLocation } from 'react-router-dom';
 import { useStore } from './app/providers';
 import { BottomNav } from './components/BottomNav';
 import { Empty, ErrorState, Loader } from './components/ui';
@@ -23,6 +24,9 @@ import { AdminReviews } from './pages/admin/Reviews';
 import { AdminCategories } from './pages/admin/Categories';
 import { Settings } from './pages/admin/Settings';
 import { DeliveryGuide } from './pages/admin/DeliveryGuide';
+import { Legal } from './pages/Legal';
+import { LegalNotice } from './components/LegalNotice';
+import { api } from './lib/api';
 
 function BuyerLayout() {
   return (
@@ -35,6 +39,18 @@ function BuyerLayout() {
 
 export function App() {
   const { loading, error, blocked, store, reloadStore } = useStore();
+  const location = useLocation();
+  const [noticeDecision, setNoticeDecision] = useState<'accepted' | 'dismissed' | null | undefined>(undefined);
+  const [noticeError, setNoticeError] = useState(false);
+
+  useEffect(() => {
+    if (!store) return;
+    let active = true;
+    setNoticeDecision(undefined);
+    api.legalNotice().then((r) => { if (active) { setNoticeDecision(r.decision); setNoticeError(false); } })
+      .catch(() => { if (active) setNoticeError(true); });
+    return () => { active = false; };
+  }, [store?.id, store?.settings.legalName, store?.settings.legalInn, store?.settings.legalAddress, store?.settings.legalEmail]);
 
   if (loading) return <div className="app"><Loader text="Открываем магазин…" /></div>;
   if (blocked)
@@ -49,6 +65,11 @@ export function App() {
         <ErrorState message={error} onRetry={reloadStore} />
       </div>
     );
+  if (!location.pathname.startsWith('/legal/')) {
+    if (noticeError) return <div className="app"><div className="page"><ErrorState message="Не удалось проверить настройки конфиденциальности" onRetry={() => { setNoticeError(false); api.legalNotice().then((r) => setNoticeDecision(r.decision)).catch(() => setNoticeError(true)); }} /></div></div>;
+    if (noticeDecision === undefined) return <div className="app"><Loader text="Проверяем документы магазина…" /></div>;
+    if (noticeDecision === null) return <div className="app"><LegalNotice onDone={setNoticeDecision} /></div>;
+  }
 
   return (
     <div className="app">
@@ -67,6 +88,7 @@ export function App() {
         <Route path="/product/:id" element={<ProductPage />} />
         <Route path="/checkout/:productId" element={<Checkout />} />
         <Route path="/checkout" element={<Checkout />} />
+        <Route path="/legal/:document" element={<Legal />} />
 
         <Route path="/admin" element={<AdminLayout />}>
           <Route index element={<Overview />} />

@@ -35,8 +35,8 @@ export function Profile() {
       <div className="card" style={{ padding: '4px 14px', marginTop: 4 }}>
         <div className="kv"><span className="k">Мои заказы</span><Link className="text-action" to="/orders">Открыть</Link></div>
         <div className="kv"><span className="k">Уведомления</span><span className="small muted">Приходят в Telegram</span></div>
-        <div className="kv"><span className="k">Политика конфиденциальности</span>{store?.settings.privacyUrl ? <a className="text-action" href={store.settings.privacyUrl} target="_blank" rel="noopener noreferrer">Открыть</a> : <span className="small muted">Не опубликована продавцом</span>}</div>
-        <div className="kv"><span className="k">Пользовательское соглашение</span>{store?.settings.termsUrl ? <a className="text-action" href={store.settings.termsUrl} target="_blank" rel="noopener noreferrer">Открыть</a> : <span className="small muted">Не опубликовано продавцом</span>}</div>
+        <div className="kv"><span className="k">Политика конфиденциальности</span><Link className="text-action" to="/legal/privacy">Читать</Link></div>
+        <div className="kv"><span className="k">Условия покупки и возврата</span><Link className="text-action" to="/legal/terms">Читать</Link></div>
         <div className="kv"><span className="k">Поддержка</span><Link className="text-action" to="/chat">Связаться</Link></div>
       </div>
 

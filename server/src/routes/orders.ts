@@ -11,6 +11,7 @@ import { connectionFromSettings, getCdekPoint, quoteCdek } from '../lib/cdek.js'
 import { prisma } from '../db.js';
 import { badRequest, conflict, h, notFound } from '../lib/http.js';
 import { presentOrder, presentStoreSettings } from '../lib/present.js';
+import { legalVersion } from '../lib/legal.js';
 import { lockProducts, reserveVariant, syncProductStatus } from '../lib/inventory.js';
 import { logEvent } from '../lib/stats.js';
 import { authenticate } from '../middleware/auth.js';
@@ -39,6 +40,7 @@ const createSchema = z.object({
   deliveryMethod: z.enum(['meetup', 'cdek', 'russian_post', 'yandex_delivery', 'dhl', 'discuss']),
   comment: z.string().trim().max(1000).optional(),
   consent: z.literal(true, { errorMap: () => ({ message: 'Нужно согласие на передачу данных' }) }),
+  termsAccepted: z.literal(true, { errorMap: () => ({ message: 'Подтвердите ознакомление с условиями покупки' }) }),
 }).superRefine((data, ctx) => {
   if (!data.productId && !data.items?.length) ctx.addIssue({ code: 'custom', path: ['items'], message: 'Корзина пуста' });
   if (data.items && new Set(data.items.map((i) => i.variantId)).size !== data.items.length) ctx.addIssue({ code: 'custom', path: ['items'], message: 'Повторяющиеся позиции в корзине' });
@@ -65,8 +67,8 @@ ordersRouter.post(
     const data = createSchema.parse(req.body);
     const user = req.auth!.user;
     const legal = presentStoreSettings(req.store!);
-    if (!legal.privacyUrl?.startsWith('https://') || !legal.termsUrl?.startsWith('https://')) {
-      throw badRequest('Магазин ещё не добавил политику конфиденциальности и условия покупки', 'store_legal_missing');
+    if (!legal.legalReady) {
+      throw badRequest('Продавец ещё не заполнил сведения для документов магазина', 'store_legal_missing');
     }
     if (!legal.deliveryMethods.includes(data.deliveryMethod)) {
       throw badRequest('Этот способ получения недоступен в магазине');
@@ -129,6 +131,9 @@ ordersRouter.post(
           deliveryLon: cdekPoint?.lon ?? option?.lon ?? null,
           deliveryMethod: data.deliveryMethod,
           comment: data.comment ?? null,
+          personalDataConsentAt: new Date(),
+          termsAcceptedAt: new Date(),
+          legalVersion: legalVersion(req.store!),
           status: 'pending',
           reservedUntil,
           items: { create: lines.map((line) => ({ productId: line.product.id, variantId: line.variant.id, titleSnapshot: line.product.title, sizeSnapshot: line.variant.size, priceAmountSnapshot: line.product.priceAmount, quantity: line.quantity })) },

@@ -1,12 +1,33 @@
 import { Router } from 'express';
+import { z } from 'zod';
 import { prisma } from '../db.js';
 import { h } from '../lib/http.js';
+import { legalVersion } from '../lib/legal.js';
 import { presentCategory, presentStore, presentStoreSettings } from '../lib/present.js';
 import { getStoreRating } from '../lib/stats.js';
 import { authenticate } from '../middleware/auth.js';
 import { resolveStore } from '../middleware/store.js';
 
 export const storeRouter = Router();
+storeRouter.get('/legal-notice', authenticate, resolveStore(), h(async (req, res) => {
+  const version = legalVersion(req.store!);
+  const notice = await prisma.legalNotice.findUnique({ where: { storeId_userId_version: { storeId: req.store!.id, userId: req.auth!.user.id, version } } });
+  res.json({ version, decision: notice?.decision ?? null });
+}));
+
+storeRouter.post('/legal-notice', authenticate, resolveStore(), h(async (req, res) => {
+  const { decision } = z.object({ decision: z.enum(['accepted', 'dismissed']) }).parse(req.body);
+  const version = legalVersion(req.store!);
+  if (decision === 'accepted' && !presentStoreSettings(req.store!).legalReady) {
+    return res.status(409).json({ error: { code: 'store_legal_missing', message: 'Продавец ещё не заполнил сведения для документов' } });
+  }
+  const notice = await prisma.legalNotice.upsert({
+    where: { storeId_userId_version: { storeId: req.store!.id, userId: req.auth!.user.id, version } },
+    create: { storeId: req.store!.id, userId: req.auth!.user.id, version, decision },
+    update: { decision, decidedAt: new Date() },
+  });
+  res.json({ version, decision: notice.decision });
+}));
 
 // GET /api/store — витрина текущего магазина (§6.1)
 storeRouter.get(

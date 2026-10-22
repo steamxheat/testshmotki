@@ -73,6 +73,10 @@ export function Settings() {
           backgroundUrl: store!.settings.backgroundUrl,
           privacyUrl: store!.settings.privacyUrl,
           termsUrl: store!.settings.termsUrl,
+          legalName: store!.settings.legalName,
+          legalInn: store!.settings.legalInn,
+          legalAddress: store!.settings.legalAddress,
+          legalEmail: store!.settings.legalEmail,
           paymentDetails,
           deliveryOptions: store!.settings.deliveryOptions,
           showSold: store!.settings.showSold,
@@ -204,9 +208,13 @@ export function Settings() {
 
       <div className="section">
         <h2>Документы магазина</h2>
-        <p className="small muted">Добавьте утверждённые для вашего магазина HTTPS-ссылки. Пока обе ссылки не сохранены, покупатели не смогут отправить заявку. Приложение не создаёт юридические тексты автоматически.</p>
-        <div className="field"><label htmlFor="privacy-url">Политика конфиденциальности</label><input id="privacy-url" type="url" inputMode="url" value={store.settings.privacyUrl ?? ''} onChange={(e) => updSettings({ privacyUrl: e.target.value || null })} placeholder="https://…" /></div>
-        <div className="field"><label htmlFor="terms-url">Пользовательское соглашение</label><input id="terms-url" type="url" inputMode="url" value={store.settings.termsUrl ?? ''} onChange={(e) => updSettings({ termsUrl: e.target.value || null })} placeholder="https://…" /></div>
+        <p className="small muted">Политика и условия покупки уже подготовлены внутри приложения. Укажите реальные данные продавца: они появятся в документах и откроют оформление заявок. Перед запуском проверьте тексты с юристом под вашу форму торговли.</p>
+        <div className="field"><label htmlFor="legal-name">Продавец: ИП, организация или самозанятый</label><input id="legal-name" value={store.settings.legalName ?? ''} onChange={(e) => updSettings({ legalName: e.target.value || null })} maxLength={200} placeholder="ИП Иванов Иван Иванович" /></div>
+        <div className="field"><label htmlFor="legal-inn">ИНН продавца</label><input id="legal-inn" value={store.settings.legalInn ?? ''} onChange={(e) => updSettings({ legalInn: e.target.value || null })} inputMode="numeric" pattern="[0-9]{10}|[0-9]{12}" maxLength={12} placeholder="10 или 12 цифр" /></div>
+        <div className="field"><label htmlFor="legal-address">Адрес для обращений и возвратов</label><input id="legal-address" value={store.settings.legalAddress ?? ''} onChange={(e) => updSettings({ legalAddress: e.target.value || null })} maxLength={500} placeholder="Индекс, город, улица, дом" /></div>
+        <div className="field"><label htmlFor="legal-email">Email для вопросов о данных и претензий</label><input id="legal-email" type="email" value={store.settings.legalEmail ?? ''} onChange={(e) => updSettings({ legalEmail: e.target.value || null })} maxLength={200} placeholder="shop@example.ru" /></div>
+        <div className="row"><Link className="btn small outline" to="/legal/privacy">Политика</Link><Link className="btn small outline" to="/legal/terms">Условия покупки</Link></div>
+        <p className="small muted">Статус: {store.settings.legalReady ? 'реквизиты заполнены' : 'реквизиты не заполнены; заявки закрыты'}. После сохранения проверьте опубликованные страницы. Старые внешние ссылки сохраняются в настройках, но покупателю теперь показываются внутренние документы.</p>
       </div>
 
       <div className="field"><label>График ответа</label><input aria-label="График ответа" value={store.settings.responseSchedule ?? ''} onChange={(e) => updSettings({ responseSchedule: e.target.value })} /></div>

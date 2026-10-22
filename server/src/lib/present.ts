@@ -17,6 +17,10 @@ type ProductWithImages = Product & { images?: ProductImage[]; variants?: Product
 
 export function presentStoreSettings(store: Store) {
   const s = (store.settings ?? {}) as Record<string, unknown>;
+  const legalName = typeof s.legalName === 'string' ? s.legalName.trim() : '';
+  const legalInn = typeof s.legalInn === 'string' ? s.legalInn.trim() : '';
+  const legalAddress = typeof s.legalAddress === 'string' ? s.legalAddress.trim() : '';
+  const legalEmail = typeof s.legalEmail === 'string' ? s.legalEmail.trim() : '';
   return {
     deliveryMethods: (s.deliveryMethods as string[]) ?? ['meetup', 'cdek', 'russian_post', 'discuss'],
     responseSchedule: (s.responseSchedule as string) ?? null,
@@ -26,6 +30,11 @@ export function presentStoreSettings(store: Store) {
     backgroundUrl: (s.backgroundUrl as string) ?? null,
     privacyUrl: (s.privacyUrl as string) ?? null,
     termsUrl: (s.termsUrl as string) ?? null,
+    legalName: legalName || null,
+    legalInn: legalInn || null,
+    legalAddress: legalAddress || null,
+    legalEmail: legalEmail || null,
+    legalReady: legalName.length >= 2 && /^(\d{10}|\d{12})$/.test(legalInn) && legalAddress.length >= 5 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(legalEmail),
     deliveryOptions: (s.deliveryOptions as Record<string, unknown>[]) ?? [],
     showSold: (s.showSold as boolean) ?? true,
     blocks: (s.blocks as Record<string, boolean>) ?? {

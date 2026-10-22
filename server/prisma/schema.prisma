@@ -112,6 +112,7 @@ model User {
   events      Event[]
   chatThreads ChatThread[]
   chatMessages ChatMessage[]
+  legalNotices LegalNotice[]
 
   @@map("users")
 }
@@ -138,6 +139,7 @@ model Store {
   reviews    Review[]
   events     Event[]
   chatThreads ChatThread[]
+  legalNotices LegalNotice[]
 
   @@map("stores")
 }
@@ -154,6 +156,21 @@ model StoreMember {
 
   @@unique([storeId, userId])
   @@map("store_members")
+}
+
+model LegalNotice {
+  id        String   @id @default(cuid())
+  storeId   String   @map("store_id")
+  userId    String   @map("user_id")
+  version   String
+  decision  String
+  decidedAt DateTime @default(now()) @map("decided_at")
+
+  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([storeId, userId, version])
+  @@map("legal_notices")
 }
 
 model Category {
@@ -273,6 +290,9 @@ model Order {
   receiptFilename      String?        @map("receipt_filename")
   receiptSubmittedAt   DateTime?      @map("receipt_submitted_at")
   paymentConfirmedAt   DateTime?      @map("payment_confirmed_at")
+  personalDataConsentAt DateTime?      @map("personal_data_consent_at")
+  termsAcceptedAt      DateTime?      @map("terms_accepted_at")
+  legalVersion         String?        @map("legal_version")
   status               OrderStatus    @default(pending)
   reservedUntil        DateTime?      @map("reserved_until")
   createdAt            DateTime       @default(now()) @map("created_at")

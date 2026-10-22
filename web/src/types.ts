@@ -47,6 +47,11 @@ export interface StoreSettings {
   backgroundUrl: string | null;
   privacyUrl: string | null;
   termsUrl: string | null;
+  legalName: string | null;
+  legalInn: string | null;
+  legalAddress: string | null;
+  legalEmail: string | null;
+  legalReady: boolean;
   deliveryOptions: DeliveryOption[];
   showSold: boolean;
   blocks: { newArrivals: boolean; discounted: boolean; recent: boolean };

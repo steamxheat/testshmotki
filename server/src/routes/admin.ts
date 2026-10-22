@@ -653,6 +653,10 @@ const settingsSchema = z.object({
       backgroundUrl: z.string().regex(/^\/uploads\/[\w-]+\.webp$/).nullish(),
       privacyUrl: z.string().url().regex(/^https:\/\//).max(500).nullish(),
       termsUrl: z.string().url().regex(/^https:\/\//).max(500).nullish(),
+      legalName: z.string().trim().max(200).nullish(),
+      legalInn: z.string().trim().regex(/^(\d{10}|\d{12})$/, 'ИНН: 10 или 12 цифр').nullish(),
+      legalAddress: z.string().trim().max(500).nullish(),
+      legalEmail: z.string().trim().email().max(200).nullish(),
       paymentDetails: z.string().trim().max(1000).nullish(),
       deliveryOptions: z.array(z.object({
         id: z.string().regex(/^[\w-]{1,60}$/),
